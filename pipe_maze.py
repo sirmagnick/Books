@@ -93,7 +93,11 @@ def main() -> None:
 
     if st.button("Generate Maze"):
         grid = generate_maze(width, height)
-        img = draw_maze(grid, width, height)
+        st.session_state["pipe_maze_grid"] = (width, height, grid)
+
+    if "pipe_maze_grid" in st.session_state:
+        w, h, grid = st.session_state["pipe_maze_grid"]
+        img = draw_maze(grid, w, h)
         st.image(img)
     else:
         st.write("Click 'Generate Maze' to create a new maze.")
