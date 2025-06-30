@@ -2,6 +2,14 @@
 
 import streamlit as st
 
+
+def _rerun() -> None:
+    """Compatibility wrapper for Streamlit's rerun function."""
+    if hasattr(st, "rerun"):
+        st.rerun()
+    else:
+        st.experimental_rerun()
+
 import pipe_maze
 
 
@@ -12,16 +20,16 @@ def show_menu() -> None:
 
     if st.button("pipe-maze"):
         st.session_state["page"] = "pipe-maze"
-        st.experimental_rerun()
+        _rerun()
     if st.button("test2"):
         st.session_state["page"] = "test2"
-        st.experimental_rerun()
+        _rerun()
     if st.button("test3"):
         st.session_state["page"] = "test3"
-        st.experimental_rerun()
+        _rerun()
     if st.button("test4"):
         st.session_state["page"] = "test4"
-        st.experimental_rerun()
+        _rerun()
 
 
 def main() -> None:
@@ -37,13 +45,13 @@ def main() -> None:
     elif page == "pipe-maze":
         if st.button("Back"):
             st.session_state["page"] = "menu"
-            st.experimental_rerun()
+            _rerun()
         pipe_maze.main()
     else:
         st.write(f"{page} clicked")
         if st.button("Back"):
             st.session_state["page"] = "menu"
-            st.experimental_rerun()
+            _rerun()
 
 
 if __name__ == "__main__":
