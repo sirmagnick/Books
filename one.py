@@ -218,7 +218,101 @@ WORDSEARCH_HTML = """
 </div>
 <!-- Tu wklej cały kod JS, bez zmian. Zmieści się jako <script> ... </script> -->
 <script>
-/* ... KOD JS BEZ ZMIAN (TWÓJ ORYGINALNY ZEWNĘTRZNY SKRYPT) ... */
+document.addEventListener("DOMContentLoaded", () => {
+  let currentWord = "COFFEE";
+  const difficultySelect = document.getElementById("difficultySelect");
+  const customRows = document.getElementById("customRows");
+  const customCols = document.getElementById("customCols");
+  let ROWS = 10;
+  let COLS = 8;
+  let grid = [];
+
+  function setDifficulty() {
+    switch (difficultySelect.value) {
+      case "medium":
+        ROWS = 14;
+        COLS = 10;
+        break;
+      case "hard":
+        ROWS = 20;
+        COLS = 14;
+        break;
+      case "hell":
+        ROWS = 32;
+        COLS = 20;
+        break;
+      case "custom":
+        ROWS = parseInt(customRows.value) || 10;
+        COLS = parseInt(customCols.value) || 8;
+        break;
+      default:
+        ROWS = 10;
+        COLS = 8;
+    }
+  }
+
+  function initGrid() {
+    grid = [];
+    for (let r = 0; r < ROWS; r++) {
+      grid[r] = [];
+      for (let c = 0; c < COLS; c++) {
+        grid[r][c] = "";
+      }
+    }
+  }
+
+  function fillRandom() {
+    const letters = currentWord.toUpperCase().split("");
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (!grid[r][c]) {
+          grid[r][c] = letters[Math.floor(Math.random() * letters.length)];
+        }
+      }
+    }
+  }
+
+  function placeWord(word) {
+    const dir = { dr: 1, dc: 0 };
+    if (word.length > ROWS) return false;
+    const startR = Math.floor(Math.random() * (ROWS - word.length + 1));
+    const startC = Math.floor(Math.random() * COLS);
+    for (let i = 0; i < word.length; i++) {
+      grid[startR + i][startC] = word[i];
+    }
+  }
+
+  function render() {
+    const container = document.getElementById("grid");
+    container.innerHTML = "";
+    container.style.gridTemplateColumns = `repeat(${COLS}, 24px)`;
+    container.style.gridTemplateRows = `repeat(${ROWS}, 24px)`;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const div = document.createElement("div");
+        div.className = "cell";
+        div.textContent = grid[r][c];
+        container.appendChild(div);
+      }
+    }
+  }
+
+  function newGame() {
+    currentWord = document
+      .getElementById("wordInput")
+      .value.trim()
+      .toUpperCase() || "WORD";
+    setDifficulty();
+    initGrid();
+    placeWord(currentWord);
+    fillRandom();
+    render();
+  }
+
+  document.getElementById("applyWordBtn").addEventListener("click", newGame);
+  document.getElementById("newGameBtn").addEventListener("click", newGame);
+  newGame();
+});
 </script>
 </body>
 </html>
