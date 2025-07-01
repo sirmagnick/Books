@@ -1,108 +1,83 @@
-"""Simple pipe maze generator with a Streamlit interface."""
-
-from __future__ import annotations
-
-import random
-from dataclasses import dataclass
-from typing import Dict, Iterable, Set, Tuple
+"""Streamlit wrapper to run a simple one-word wordsearch game."""
 
 import streamlit as st
-from PIL import Image, ImageDraw
+from streamlit.components.v1 import html
 
-
-Direction = str
-
-
-@dataclass
-class Cell:
-    """Represents a single maze cell with open pipe directions."""
-
-    opens: Set[Direction]
-
-
-def generate_maze(width: int, height: int) -> Dict[Tuple[int, int], Cell]:
-    """Generate a perfect maze using a depth-first search algorithm."""
-
-    directions: Dict[Direction, Tuple[int, int]] = {
-        "N": (0, -1),
-        "E": (1, 0),
-        "S": (0, 1),
-        "W": (-1, 0),
+WORDSEARCH_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Wordsearch One Word</title>
+<style>
+  body { font-family: sans-serif; }
+  #grid { border-collapse: collapse; margin-top: 1em; }
+  #grid td { width: 40px; height: 40px; border: 1px solid #999; text-align: center;
+             font-size: 20px; cursor: pointer; }
+  .found { background: lightgreen; }
+</style>
+</head>
+<body>
+<h3>Find the word: PYTHON</h3>
+<table id="grid"></table>
+<script>
+const word = "PYTHON";
+const size = 10;
+const grid = [];
+for (let r = 0; r < size; r++) {
+  grid[r] = [];
+  for (let c = 0; c < size; c++) {
+    grid[r][c] = String.fromCharCode(65 + Math.floor(Math.random() * 26));
+  }
+}
+const row = Math.floor(Math.random() * size);
+const col = Math.floor(Math.random() * (size - word.length));
+for (let i = 0; i < word.length; i++) {
+  grid[row][col + i] = word[i];
+}
+const tbl = document.getElementById('grid');
+for (let r = 0; r < size; r++) {
+  const tr = document.createElement('tr');
+  for (let c = 0; c < size; c++) {
+    const td = document.createElement('td');
+    td.textContent = grid[r][c];
+    tr.appendChild(td);
+  }
+  tbl.appendChild(tr);
+}
+let selection = [];
+tbl.addEventListener('click', e => {
+  if (e.target.tagName === 'TD') {
+    const td = e.target;
+    td.classList.add('found');
+    selection.push(td);
+    if (selection.length === word.length) {
+      let match = true;
+      for (let i = 0; i < selection.length; i++) {
+        if (selection[i].textContent !== word[i]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) {
+        alert('Congratulations! You found the word!');
+      } else {
+        alert('Incorrect selection, try again.');
+      }
+      selection.forEach(cell => cell.classList.remove('found'));
+      selection = [];
     }
-    opposite: Dict[Direction, Direction] = {"N": "S", "E": "W", "S": "N", "W": "E"}
-
-    grid: Dict[Tuple[int, int], Cell] = {
-        (x, y): Cell(set()) for y in range(height) for x in range(width)
-    }
-
-    stack: list[Tuple[int, int]] = [(0, 0)]
-    visited = {(0, 0)}
-    while stack:
-        x, y = stack[-1]
-        neighbors = []
-        for d, (dx, dy) in directions.items():
-            nx, ny = x + dx, y + dy
-            if 0 <= nx < width and 0 <= ny < height and (nx, ny) not in visited:
-                neighbors.append((d, nx, ny))
-
-        if neighbors:
-            d, nx, ny = random.choice(neighbors)
-            grid[(x, y)].opens.add(d)
-            grid[(nx, ny)].opens.add(opposite[d])
-            visited.add((nx, ny))
-            stack.append((nx, ny))
-        else:
-            stack.pop()
-
-    return grid
-
-
-def draw_maze(
-    grid: Dict[Tuple[int, int], Cell],
-    width: int,
-    height: int,
-    cell_size: int = 60,
-    pipe_width: int = 20,
-) -> Image.Image:
-    """Render the maze as a Pillow image."""
-
-    img = Image.new("RGB", (width * cell_size, height * cell_size), "white")
-    draw = ImageDraw.Draw(img)
-
-    for (x, y), cell in grid.items():
-        cx = x * cell_size + cell_size // 2
-        cy = y * cell_size + cell_size // 2
-        half = cell_size // 2
-        if "N" in cell.opens:
-            draw.line((cx, cy, cx, cy - half), fill="blue", width=pipe_width)
-        if "S" in cell.opens:
-            draw.line((cx, cy, cx, cy + half), fill="blue", width=pipe_width)
-        if "E" in cell.opens:
-            draw.line((cx, cy, cx + half, cy), fill="blue", width=pipe_width)
-        if "W" in cell.opens:
-            draw.line((cx, cy, cx - half, cy), fill="blue", width=pipe_width)
-
-    return img
-
+  }
+});
+</script>
+</body>
+</html>
+"""
 
 def main() -> None:
-    st.title("Pipe Maze Generator")
-    st.sidebar.write("Maze Settings")
-    width = st.sidebar.slider("Width", 5, 20, 10)
-    height = st.sidebar.slider("Height", 5, 20, 10)
-
-    if st.button("Generate Maze"):
-        grid = generate_maze(width, height)
-        st.session_state["pipe_maze_grid"] = (width, height, grid)
-
-    if "pipe_maze_grid" in st.session_state:
-        w, h, grid = st.session_state["pipe_maze_grid"]
-        img = draw_maze(grid, w, h)
-        st.image(img)
-    else:
-        st.write("Click 'Generate Maze' to create a new maze.")
-
+    """Display the embedded wordsearch game using Streamlit."""
+    st.title("Wordsearch One Word")
+    html(WORDSEARCH_HTML, height=600)
 
 if __name__ == "__main__":
     main()
-
