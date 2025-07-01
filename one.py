@@ -223,9 +223,25 @@ document.addEventListener("DOMContentLoaded", () => {
   const difficultySelect = document.getElementById("difficultySelect");
   const customRows = document.getElementById("customRows");
   const customCols = document.getElementById("customCols");
+  const customSettings = document.getElementById("customSettings");
   let ROWS = 10;
   let COLS = 8;
   let grid = [];
+  let wordCells = [];
+
+  function updateGridSettings() {
+    document.querySelectorAll('.gridSettings').forEach(el => (el.style.display = 'none'));
+    customSettings.style.display = 'none';
+    if (difficultySelect.value === 'easy')
+      document.getElementById('settings_easy').style.display = 'flex';
+    else if (difficultySelect.value === 'medium')
+      document.getElementById('settings_medium').style.display = 'flex';
+    else if (difficultySelect.value === 'hard')
+      document.getElementById('settings_hard').style.display = 'flex';
+    else if (difficultySelect.value === 'hell')
+      document.getElementById('settings_hell').style.display = 'flex';
+    if (difficultySelect.value === 'custom') customSettings.style.display = 'flex';
+  }
 
   function setDifficulty() {
     switch (difficultySelect.value) {
@@ -277,8 +293,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (word.length > ROWS) return false;
     const startR = Math.floor(Math.random() * (ROWS - word.length + 1));
     const startC = Math.floor(Math.random() * COLS);
+    wordCells = [];
     for (let i = 0; i < word.length; i++) {
       grid[startR + i][startC] = word[i];
+      wordCells.push({ r: startR + i, c: startC });
     }
   }
 
@@ -295,6 +313,16 @@ document.addEventListener("DOMContentLoaded", () => {
         container.appendChild(div);
       }
     }
+    highlightWord();
+  }
+
+  function highlightWord() {
+    const container = document.getElementById("grid");
+    wordCells.forEach(({ r, c }) => {
+      const index = r * COLS + c;
+      const cell = container.children[index];
+      if (cell) cell.classList.add("found");
+    });
   }
 
   function newGame() {
@@ -311,6 +339,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("applyWordBtn").addEventListener("click", newGame);
   document.getElementById("newGameBtn").addEventListener("click", newGame);
+  difficultySelect.addEventListener("change", () => {
+    updateGridSettings();
+    setDifficulty();
+  });
+  updateGridSettings();
   newGame();
 });
 </script>
