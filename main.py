@@ -10,7 +10,7 @@ def _rerun() -> None:
     else:
         st.experimental_rerun()
 
-import pipe_maze
+import one
 
 
 def show_menu() -> None:
@@ -46,7 +46,7 @@ def main() -> None:
         if st.button("Back"):
             st.session_state["page"] = "menu"
             _rerun()
-        pipe_maze.main()
+        one.main()
     else:
         st.write(f"{page} clicked")
         if st.button("Back"):
