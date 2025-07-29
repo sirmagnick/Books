@@ -74,52 +74,55 @@ def _generate_level(width: int, height: int) -> List[List[int]]:
     return grid
 
 
-def generate_maze(width: int, height: int, levels: int) -> Tuple[List[List[List[int]]], List[Set[Cell]], List[Set[Cell]], List[Tuple[int, int, int]], Cell, Cell]:
+def generate_maze(
+    width: int, height: int, levels: int
+) -> Tuple[
+    List[List[List[int]]],
+    List[Set[Cell]],
+    List[Set[Cell]],
+    List[Tuple[int, int, int]],
+    Cell,
+    Cell,
+]:
+    """Generate a 3D maze with a single descending path."""
+
     grids = [_generate_level(width, height) for _ in range(levels)]
     up = [set() for _ in range(levels)]
     down = [set() for _ in range(levels)]
+
     path: List[Tuple[int, int, int]] = []
 
+    # starting cell on the top level
     sx, sy = random.randrange(width), random.randrange(height)
     start = (levels - 1, sx, sy)
     path.append(start)
 
     x, y = sx, sy
-    level = levels - 1
-    steps = 0
-    # allow vertical moves up or down until reaching level 0
-    while level > 0 and steps < levels * 3:
-        # random horizontal move on current level
+    # walk down through each level exactly once
+    for level in range(levels - 1, 0, -1):
+        # choose a random cell on this level for the next elevator
         nx, ny = random.randrange(width), random.randrange(height)
-        seg = _find_path(grids[level], (x, y), (nx, ny))
-        for cx, cy in seg[1:]:
+        segment = _find_path(grids[level], (x, y), (nx, ny))
+        for cx, cy in segment[1:]:
             path.append((level, cx, cy))
+
+        # create an elevator connecting to the level below
+        down[level].add((nx, ny))
+        up[level - 1].add((nx, ny))
+
+        # move to next level
         x, y = nx, ny
+        path.append((level - 1, x, y))
 
-        # decide next level: mostly down but sometimes up
-        if level < levels - 1 and random.random() < 0.3:
-            next_level = level + 1
-        else:
-            next_level = level - 1
-
-        if next_level > level:  # going up
-            up[level].add((x, y))
-            down[next_level].add((x, y))
-        else:  # going down
-            down[level].add((x, y))
-            up[next_level].add((x, y))
-
-        level = next_level
-        path.append((level, x, y))
-        steps += 1
-
+    # final segment on bottom level leading to the exit
     fx, fy = width // 2, height - 1
-    seg = _find_path(grids[0], (x, y), (fx, fy))
-    for cx, cy in seg[1:]:
+    segment = _find_path(grids[0], (x, y), (fx, fy))
+    for cx, cy in segment[1:]:
         path.append((0, cx, cy))
 
     finish = (0, fx, fy)
     path.append(finish)
+
     return grids, up, down, path, start, finish
 
 
