@@ -81,16 +81,41 @@ def generate_maze(width: int, height: int, levels: int) -> Tuple[List[List[List[
     return grids, up, down, path, start, finish
 
 
-def draw_level(grids: List[List[List[int]]], up: List[Set[Cell]], down: List[Set[Cell]], level: int, cell_size: int = 20, solution: List[Cell] | None = None, start: Tuple[int,int,int]|None=None, finish: Tuple[int,int,int]|None=None) -> Image.Image:
+def draw_level(
+    grids: List[List[List[int]]],
+    up: List[Set[Cell]],
+    down: List[Set[Cell]],
+    level: int,
+    cell_size: int = 30,
+    wall: int = 2,
+    solution: List[Cell] | None = None,
+    start: Tuple[int, int, int] | None = None,
+    finish: Tuple[int, int, int] | None = None,
+) -> Image.Image:
     grid = grids[level]
-    h = len(grid)
-    w = len(grid[0])
-    img = Image.new("RGB", (w * cell_size, h * cell_size), "black")
+    maze_h = (len(grid) - 1) // 2
+    maze_w = (len(grid[0]) - 1) // 2
+    img = Image.new("RGB", (maze_w * cell_size + wall, maze_h * cell_size + wall), "white")
     draw = ImageDraw.Draw(img)
-    for y in range(h):
-        for x in range(w):
-            if grid[y][x]:
-                draw.rectangle([x * cell_size, y * cell_size, (x+1)*cell_size-1, (y+1)*cell_size-1], fill="white")
+
+    # draw outer borders
+    draw.rectangle([0, 0, maze_w * cell_size, maze_h * cell_size], outline="black", width=wall)
+
+    # vertical walls
+    for y in range(maze_h):
+        for x in range(maze_w):
+            cy = 2 * y + 1
+            cx = 2 * x + 1
+            if grid[cy][cx + 1] == 0:  # wall to the right
+                x_pix = (x + 1) * cell_size
+                y1 = y * cell_size
+                y2 = (y + 1) * cell_size
+                draw.line([(x_pix, y1), (x_pix, y2)], fill="black", width=wall)
+            if grid[cy + 1][cx] == 0:  # wall below
+                y_pix = (y + 1) * cell_size
+                x1 = x * cell_size
+                x2 = (x + 1) * cell_size
+                draw.line([(x1, y_pix), (x2, y_pix)], fill="black", width=wall)
     if solution and len(solution) > 1:
         pts = [(x * 2 + 1, y * 2 + 1) for x, y in solution]
         # convert to pixel centers
