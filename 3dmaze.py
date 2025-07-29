@@ -85,15 +85,33 @@ def generate_maze(width: int, height: int, levels: int) -> Tuple[List[List[List[
     path.append(start)
 
     x, y = sx, sy
-    for lv in range(levels - 1, 0, -1):
+    level = levels - 1
+    steps = 0
+    # allow vertical moves up or down until reaching level 0
+    while level > 0 and steps < levels * 3:
+        # random horizontal move on current level
         nx, ny = random.randrange(width), random.randrange(height)
-        seg = _find_path(grids[lv], (x, y), (nx, ny))
+        seg = _find_path(grids[level], (x, y), (nx, ny))
         for cx, cy in seg[1:]:
-            path.append((lv, cx, cy))
-        down[lv].add((nx, ny))
-        up[lv - 1].add((nx, ny))
+            path.append((level, cx, cy))
         x, y = nx, ny
-        path.append((lv - 1, x, y))
+
+        # decide next level: mostly down but sometimes up
+        if level < levels - 1 and random.random() < 0.3:
+            next_level = level + 1
+        else:
+            next_level = level - 1
+
+        if next_level > level:  # going up
+            up[level].add((x, y))
+            down[next_level].add((x, y))
+        else:  # going down
+            down[level].add((x, y))
+            up[next_level].add((x, y))
+
+        level = next_level
+        path.append((level, x, y))
+        steps += 1
 
     fx, fy = width // 2, height - 1
     seg = _find_path(grids[0], (x, y), (fx, fy))
