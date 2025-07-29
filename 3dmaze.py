@@ -1,5 +1,5 @@
 import random
-from typing import List, Set, Tuple
+from typing import List, Set, Tuple, Dict
 
 import streamlit as st
 from PIL import Image, ImageDraw
@@ -8,17 +8,41 @@ from math import atan2, cos, sin, pi
 Cell = Tuple[int, int]
 
 
-def _corridor(start: Cell, end: Cell) -> List[Cell]:
-    """Return a simple manhattan corridor from start to end."""
-    x1, y1 = start
-    x2, y2 = end
+
+def _neighbors(grid: List[List[int]], cell: Cell) -> List[Cell]:
+    """Return accessible neighbour cells from given cell."""
+    x, y = cell
+    w = (len(grid[0]) - 1) // 2
+    h = (len(grid) - 1) // 2
+    neigh = []
+    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        nx, ny = x + dx, y + dy
+        if 0 <= nx < w and 0 <= ny < h:
+            if grid[y * 2 + 1 + dy][x * 2 + 1 + dx] == 1:
+                neigh.append((nx, ny))
+    return neigh
+
+
+def _find_path(grid: List[List[int]], start: Cell, end: Cell) -> List[Cell]:
+    """Find a path in the maze grid using BFS."""
+    queue = [start]
+    prev: Dict[Cell, Cell | None] = {start: None}
+    while queue:
+        cur = queue.pop(0)
+        if cur == end:
+            break
+        for n in _neighbors(grid, cur):
+            if n not in prev:
+                prev[n] = cur
+                queue.append(n)
+    if end not in prev:
+        return []
     path: List[Cell] = []
-    step = 1 if x2 >= x1 else -1
-    for x in range(x1, x2 + step, step):
-        path.append((x, y1))
-    step = 1 if y2 >= y1 else -1
-    for y in range(y1, y2 + step, step):
-        path.append((x2, y))
+    cur: Cell | None = end
+    while cur is not None:
+        path.append(cur)
+        cur = prev[cur]
+    path.reverse()
     return path
 
 
@@ -63,8 +87,8 @@ def generate_maze(width: int, height: int, levels: int) -> Tuple[List[List[List[
     x, y = sx, sy
     for lv in range(levels - 1, 0, -1):
         nx, ny = random.randrange(width), random.randrange(height)
-        for cx, cy in _corridor((x, y), (nx, ny)):
-            grids[lv][cy * 2 + 1][cx * 2 + 1] = 1
+        seg = _find_path(grids[lv], (x, y), (nx, ny))
+        for cx, cy in seg[1:]:
             path.append((lv, cx, cy))
         down[lv].add((nx, ny))
         up[lv - 1].add((nx, ny))
@@ -72,8 +96,8 @@ def generate_maze(width: int, height: int, levels: int) -> Tuple[List[List[List[
         path.append((lv - 1, x, y))
 
     fx, fy = width // 2, height - 1
-    for cx, cy in _corridor((x, y), (fx, fy)):
-        grids[0][cy * 2 + 1][cx * 2 + 1] = 1
+    seg = _find_path(grids[0], (x, y), (fx, fy))
+    for cx, cy in seg[1:]:
         path.append((0, cx, cy))
 
     finish = (0, fx, fy)
