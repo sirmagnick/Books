@@ -10,7 +10,17 @@ def _rerun() -> None:
     else:
         st.experimental_rerun()
 
-import one
+import importlib.util
+
+
+def run_3dmaze() -> None:
+    """Load and execute the 3dmaze module's main() function."""
+    spec = importlib.util.spec_from_file_location("maze3d", "3dmaze.py")
+    if spec and spec.loader:
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if hasattr(module, "main"):
+            module.main()
 
 
 def show_menu() -> None:
@@ -18,8 +28,8 @@ def show_menu() -> None:
 
     st.title("activity books generator")
 
-    if st.button("pipe-maze"):
-        st.session_state["page"] = "pipe-maze"
+    if st.button("3d maze"):
+        st.session_state["page"] = "3d maze"
         _rerun()
     if st.button("test2"):
         st.session_state["page"] = "test2"
@@ -42,11 +52,11 @@ def main() -> None:
 
     if page == "menu":
         show_menu()
-    elif page == "pipe-maze":
+    elif page == "3d maze":
         if st.button("Back"):
             st.session_state["page"] = "menu"
             _rerun()
-        one.main()
+        run_3dmaze()
     else:
         st.write(f"{page} clicked")
         if st.button("Back"):
