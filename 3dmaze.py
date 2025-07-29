@@ -117,14 +117,15 @@ def draw_level(
                 x2 = (x + 1) * cell_size
                 draw.line([(x1, y_pix), (x2, y_pix)], fill="black", width=wall)
     if solution and len(solution) > 1:
-        pts = [(x * 2 + 1, y * 2 + 1) for x, y in solution]
-        # convert to pixel centers
-        pts_px = [(px * cell_size //2 + cell_size//2, py * cell_size //2 + cell_size//2) for px,py in pts]
+        pts_px = [
+            (x * cell_size + cell_size // 2, y * cell_size + cell_size // 2)
+            for x, y in solution
+        ]
         draw.line(pts_px, fill="red", width=3)
-        x1,y1 = pts_px[-2]
-        x2,y2 = pts_px[-1]
-        angle = atan2(y2-y1, x2-x1)
-        size = cell_size//2
+        x1, y1 = pts_px[-2]
+        x2, y2 = pts_px[-1]
+        angle = atan2(y2 - y1, x2 - x1)
+        size = cell_size // 2
         arrow = [
             (x2, y2),
             (x2 - size*cos(angle - pi/6), y2 - size*sin(angle - pi/6)),
@@ -135,17 +136,38 @@ def draw_level(
     for ex, ey in up[level]:
         cx = ex * 2 + 1
         cy = ey * 2 + 1
-        draw.ellipse([(cx*cell_size//2 - radius, cy*cell_size//2 - radius), (cx*cell_size//2 + radius, cy*cell_size//2 + radius)], fill="white", outline="black")
+        draw.ellipse(
+            [
+                (cx * cell_size // 2 - radius, cy * cell_size // 2 - radius),
+                (cx * cell_size // 2 + radius, cy * cell_size // 2 + radius),
+            ],
+            fill="white",
+            outline="black",
+        )
     for ex, ey in down[level]:
         cx = ex * 2 + 1
         cy = ey * 2 + 1
-        draw.ellipse([(cx*cell_size//2 - radius, cy*cell_size//2 - radius), (cx*cell_size//2 + radius, cy*cell_size//2 + radius)], fill="black")
-    if start and start[0]==level:
+        draw.ellipse(
+            [
+                (cx * cell_size // 2 - radius, cy * cell_size // 2 - radius),
+                (cx * cell_size // 2 + radius, cy * cell_size // 2 + radius),
+            ],
+            fill="black",
+        )
+    if start and start[0] == level:
         sx, sy = start[1], start[2]
-        draw.text(((sx*2+1)*cell_size//2, (sy*2+1)*cell_size//2), "S", fill="blue")
-    if finish and finish[0]==level:
+        draw.text(
+            (sx * cell_size + cell_size // 3, sy * cell_size + cell_size // 3),
+            "S",
+            fill="blue",
+        )
+    if finish and finish[0] == level:
         fx, fy = finish[1], finish[2]
-        draw.text(((fx*2+1)*cell_size//2, (fy*2+1)*cell_size//2), "F", fill="green")
+        draw.text(
+            (fx * cell_size + cell_size // 3, fy * cell_size + cell_size // 3),
+            "F",
+            fill="green",
+        )
     return img
 
 
