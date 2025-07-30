@@ -83,11 +83,13 @@ def generate_multi_maze(width: int, height: int, paths: int):
         w = sub_w if i < paths - 1 else width - sub_w * (paths - 1)
         g = _generate_level(w, height)
         grids.append(g)
-        start = (0, 0)
-        finish = (w - 1, height - 1)
+        start = (random.randrange(w), random.randrange(height))
+        finish = (random.randrange(w), random.randrange(height))
+        while finish == start:
+            finish = (random.randrange(w), random.randrange(height))
         path = _find_path(g, start, finish)
-        starts.append((offset_x, 0))
-        finishes.append((offset_x + w - 1, height - 1))
+        starts.append((start[0] + offset_x, start[1]))
+        finishes.append((finish[0] + offset_x, finish[1]))
         solutions.append([(x + offset_x, y) for x, y in path])
         # copy g into full_grid
         for y in range(len(g)):
@@ -143,7 +145,7 @@ def main() -> None:
     with st.sidebar:
         w = st.number_input("width", 5, 60, 20)
         h = st.number_input("height", 5, 40, 20)
-        p = st.number_input("ilość ścieżek", 1, 10, 1)
+        p = st.number_input("ilość ścieżek", 1, 10, 2)
         generate = st.button("Generate")
     if generate or "multi_maze" not in st.session_state:
         grid, starts, finishes, solutions = generate_multi_maze(int(w), int(h), int(p))
