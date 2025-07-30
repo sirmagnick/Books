@@ -75,27 +75,44 @@ def _generate_level(width: int, height: int) -> List[List[int]]:
 
 
 def carve_corridor(grid: List[List[int]], start: Cell, end: Cell) -> List[Cell]:
-    """Carve a simple corridor between two cells and return the path."""
-    x, y = start
+    """Carve a corridor between two points avoiding existing passages."""
+    h = (len(grid) - 1) // 2
+    w = (len(grid[0]) - 1) // 2
+
+    # grid for pathfinding where 1 means free to carve
+    tmp = [[1 if grid[y][x] == 0 else 0 for x in range(len(grid[0]))] for y in range(len(grid))]
+    sx, sy = start
     ex, ey = end
-    path = [(x, y)]
-    grid[y * 2 + 1][x * 2 + 1] = 1
-    while (x, y) != (ex, ey):
-        dirs = []
-        if x < ex:
-            dirs.append((1, 0))
-        if x > ex:
-            dirs.append((-1, 0))
-        if y < ey:
-            dirs.append((0, 1))
-        if y > ey:
-            dirs.append((0, -1))
-        dx, dy = random.choice(dirs)
-        nx, ny = x + dx, y + dy
-        grid[y * 2 + 1 + dy][x * 2 + 1 + dx] = 1
-        grid[ny * 2 + 1][nx * 2 + 1] = 1
-        x, y = nx, ny
-        path.append((x, y))
+    tmp[sy * 2 + 1][sx * 2 + 1] = 1
+    tmp[ey * 2 + 1][ex * 2 + 1] = 1
+    path = _find_path(tmp, start, end)
+    if not path:
+        # fallback straight corridor
+        x, y = sx, sy
+        path = [(x, y)]
+        while (x, y) != (ex, ey):
+            if x < ex:
+                x += 1
+            elif x > ex:
+                x -= 1
+            elif y < ey:
+                y += 1
+            else:
+                y -= 1
+            path.append((x, y))
+
+    # carve cells
+    x0, y0 = path[0]
+    grid[y0 * 2 + 1][x0 * 2 + 1] = 1
+    for (x1, y1) in path[1:]:
+        if x1 != x0:
+            dx = 1 if x1 > x0 else -1
+            grid[y0 * 2 + 1][x0 * 2 + 1 + dx] = 1
+        if y1 != y0:
+            dy = 1 if y1 > y0 else -1
+            grid[y0 * 2 + 1 + dy][x0 * 2 + 1] = 1
+        grid[y1 * 2 + 1][x1 * 2 + 1] = 1
+        x0, y0 = x1, y1
     return path
 
 
@@ -109,30 +126,28 @@ def generate_maze(
     Cell,
     Cell,
 ]:
-    """Generate a 3D maze where the path can move up or down between floors."""
+    """Generate a 3D maze where the main path can move up or down."""
 
-    # start with completely walled grids
     grids = [[[0] * (width * 2 + 1) for _ in range(height * 2 + 1)] for _ in range(levels)]
     up = [set() for _ in range(levels)]
     down = [set() for _ in range(levels)]
 
     path: List[Tuple[int, int, int]] = []
 
-    sx, sy = random.randrange(width), random.randrange(height)
     level = levels - 1
+    sx, sy = random.randrange(width), random.randrange(height)
     start = (level, sx, sy)
     path.append(start)
-
-    x, y = sx, sy
     grids[level][sy * 2 + 1][sx * 2 + 1] = 1
 
+    x, y = sx, sy
     while level > 0:
-        # bias downward to ensure we eventually reach bottom
-        move = random.choice([-1, 1])
-        if level == levels - 1:
-            move = -1
-        if level <= 1:
-            move = -1
+        move_choices = []
+        if level > 0:
+            move_choices.append(-1)
+        if level < levels - 1:
+            move_choices.append(1)
+        move = random.choice(move_choices)
         new_level = max(0, min(levels - 1, level + move))
 
         nx, ny = random.randrange(width), random.randrange(height)
@@ -156,6 +171,7 @@ def generate_maze(
     segment = carve_corridor(grids[0], (x, y), (fx, fy))
     for cx, cy in segment[1:]:
         path.append((0, cx, cy))
+
     finish = (0, fx, fy)
     path.append(finish)
 
