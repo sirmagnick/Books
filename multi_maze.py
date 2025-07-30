@@ -1,5 +1,5 @@
 import random
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Set
 
 import streamlit as st
 from PIL import Image, ImageDraw
@@ -43,21 +43,28 @@ def _find_path(grid: List[List[int]], start: Cell, end: Cell) -> List[Cell]:
     return path
 
 
-def _generate_level(width: int, height: int) -> List[List[int]]:
+def _generate_level(width: int, height: int, allowed: Set[Cell]) -> List[List[int]]:
     w, h = width, height
     grid = [[0] * (w * 2 + 1) for _ in range(h * 2 + 1)]
-    for y in range(h):
-        for x in range(w):
-            grid[y * 2 + 1][x * 2 + 1] = 1
-    stack = [(random.randrange(w), random.randrange(h))]
-    visited = {stack[0]}
+    for x, y in allowed:
+        grid[y * 2 + 1][x * 2 + 1] = 1
+    if not allowed:
+        return grid
+    start_cell = random.choice(list(allowed))
+    stack = [start_cell]
+    visited = {start_cell}
     dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)]
     while stack:
         x, y = stack[-1]
         neigh = []
         for dx, dy in dirs:
             nx, ny = x + dx, y + dy
-            if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in visited:
+            if (
+                0 <= nx < w
+                and 0 <= ny < h
+                and (nx, ny) in allowed
+                and (nx, ny) not in visited
+            ):
                 neigh.append((dx, dy, nx, ny))
         if neigh:
             dx, dy, nx, ny = random.choice(neigh)
@@ -70,36 +77,98 @@ def _generate_level(width: int, height: int) -> List[List[int]]:
     return grid
 
 
+def _straight_path(start: Cell, end: Cell) -> List[Cell]:
+    """Return a list of cells forming a simple Manhattan path."""
+    x0, y0 = start
+    x1, y1 = end
+    path: List[Cell] = []
+    if random.choice([True, False]):
+        step = 1 if x1 >= x0 else -1
+        for x in range(x0, x1 + step, step):
+            path.append((x, y0))
+        step = 1 if y1 >= y0 else -1
+        for y in range(y0 + step, y1 + step, step):
+            path.append((x1, y))
+    else:
+        step = 1 if y1 >= y0 else -1
+        for y in range(y0, y1 + step, step):
+            path.append((x0, y))
+        step = 1 if x1 >= x0 else -1
+        for x in range(x0 + step, x1 + step, step):
+            path.append((x, y1))
+    return path
+
+
 def generate_multi_maze(width: int, height: int, paths: int):
     paths = max(1, paths)
-    sub_w = width // paths
-    grids = []
-    starts = []
-    finishes = []
-    solutions = []
-    offset_x = 0
+    starts: List[Cell] = []
+    finishes: List[Cell] = []
+    lines: List[List[Cell]] = []
+    used: Set[Cell] = set()
+    attempts = 0
+    while len(lines) < paths and attempts < 500:
+        start = (random.randrange(width), random.randrange(height))
+        finish = (random.randrange(width), random.randrange(height))
+        if start == finish:
+            attempts += 1
+            continue
+        line = _straight_path(start, finish)
+        if any(c in used for c in line):
+            attempts += 1
+            continue
+        lines.append(line)
+        starts.append(start)
+        finishes.append(finish)
+        used.update(line)
+    paths = len(lines)
+
+    # assign cells to regions using multi-source BFS
+    region = [[-1 for _ in range(height)] for _ in range(width)]
+    from collections import deque
+    q = deque()
+    for idx, line in enumerate(lines):
+        for x, y in line:
+            region[x][y] = idx
+            q.append((x, y, idx))
+    dirs = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+    while q:
+        x, y, idx = q.popleft()
+        random.shuffle(dirs)
+        for dx, dy in dirs:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < width and 0 <= ny < height and region[nx][ny] == -1:
+                region[nx][ny] = idx
+                q.append((nx, ny, idx))
+
+    regions: List[Set[Cell]] = [set() for _ in range(paths)]
+    for x in range(width):
+        for y in range(height):
+            idx = region[x][y]
+            if idx != -1 and (x, y) not in lines[idx]:
+                regions[idx].add((x, y))
+
     full_grid = [[0] * (width * 2 + 1) for _ in range(height * 2 + 1)]
-    for i in range(paths):
-        w = sub_w if i < paths - 1 else width - sub_w * (paths - 1)
-        g = _generate_level(w, height)
-        grids.append(g)
-        start = (random.randrange(w), random.randrange(height))
-        finish = (random.randrange(w), random.randrange(height))
-        while finish == start:
-            finish = (random.randrange(w), random.randrange(height))
-        path = _find_path(g, start, finish)
-        starts.append((start[0] + offset_x, start[1]))
-        finishes.append((finish[0] + offset_x, finish[1]))
-        solutions.append([(x + offset_x, y) for x, y in path])
-        # copy g into full_grid
-        for y in range(len(g)):
-            for x in range(len(g[0])):
-                full_grid[y][x + offset_x * 2] = g[y][x]
-        # add dividing wall between regions except last
-        if i < paths - 1:
-            for y in range(height * 2 + 1):
-                full_grid[y][offset_x * 2 + w * 2] = 0
-        offset_x += w
+    for cells in regions:
+        if not cells:
+            continue
+        reg_grid = _generate_level(width, height, cells)
+        for y in range(height * 2 + 1):
+            for x in range(width * 2 + 1):
+                if reg_grid[y][x]:
+                    full_grid[y][x] = 1
+
+    # carve corridors
+    for line in lines:
+        prev = None
+        for x, y in line:
+            full_grid[y * 2 + 1][x * 2 + 1] = 1
+            if prev:
+                dx = x - prev[0]
+                dy = y - prev[1]
+                full_grid[prev[1] * 2 + 1 + dy][prev[0] * 2 + 1 + dx] = 1
+            prev = (x, y)
+
+    solutions = [line for line in lines]
     return full_grid, starts, finishes, solutions
 
 
