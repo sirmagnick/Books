@@ -74,31 +74,6 @@ def _generate_level(width: int, height: int) -> List[List[int]]:
     return grid
 
 
-def carve_corridor(grid: List[List[int]], start: Cell, end: Cell) -> List[Cell]:
-    """Carve a simple corridor between two cells and return the path."""
-    x, y = start
-    ex, ey = end
-    path = [(x, y)]
-    grid[y * 2 + 1][x * 2 + 1] = 1
-    while (x, y) != (ex, ey):
-        dirs = []
-        if x < ex:
-            dirs.append((1, 0))
-        if x > ex:
-            dirs.append((-1, 0))
-        if y < ey:
-            dirs.append((0, 1))
-        if y > ey:
-            dirs.append((0, -1))
-        dx, dy = random.choice(dirs)
-        nx, ny = x + dx, y + dy
-        grid[y * 2 + 1 + dy][x * 2 + 1 + dx] = 1
-        grid[ny * 2 + 1][nx * 2 + 1] = 1
-        x, y = nx, ny
-        path.append((x, y))
-    return path
-
-
 def generate_maze(
     width: int, height: int, levels: int
 ) -> Tuple[
@@ -109,53 +84,42 @@ def generate_maze(
     Cell,
     Cell,
 ]:
-    """Generate a 3D maze where the path can move up or down between floors."""
+    """Generate a 3D maze with a single descending path."""
 
-    # start with completely walled grids
-    grids = [[[0] * (width * 2 + 1) for _ in range(height * 2 + 1)] for _ in range(levels)]
+    grids = [_generate_level(width, height) for _ in range(levels)]
     up = [set() for _ in range(levels)]
     down = [set() for _ in range(levels)]
 
     path: List[Tuple[int, int, int]] = []
 
+    # starting cell on the top level
     sx, sy = random.randrange(width), random.randrange(height)
-    level = levels - 1
-    start = (level, sx, sy)
+    start = (levels - 1, sx, sy)
     path.append(start)
 
     x, y = sx, sy
-    grids[level][sy * 2 + 1][sx * 2 + 1] = 1
-
-    while level > 0:
-        # bias downward to ensure we eventually reach bottom
-        move = random.choice([-1, 1])
-        if level == levels - 1:
-            move = -1
-        if level <= 1:
-            move = -1
-        new_level = max(0, min(levels - 1, level + move))
-
+    # walk down through each level exactly once
+    for level in range(levels - 1, 0, -1):
+        # choose a random cell on this level for the next elevator
         nx, ny = random.randrange(width), random.randrange(height)
-        segment = carve_corridor(grids[level], (x, y), (nx, ny))
+        segment = _find_path(grids[level], (x, y), (nx, ny))
         for cx, cy in segment[1:]:
             path.append((level, cx, cy))
 
-        if new_level < level:
-            down[level].add((nx, ny))
-            up[new_level].add((nx, ny))
-        else:
-            up[level].add((nx, ny))
-            down[new_level].add((nx, ny))
+        # create an elevator connecting to the level below
+        down[level].add((nx, ny))
+        up[level - 1].add((nx, ny))
 
-        level = new_level
+        # move to next level
         x, y = nx, ny
-        path.append((level, x, y))
-        grids[level][y * 2 + 1][x * 2 + 1] = 1
+        path.append((level - 1, x, y))
 
+    # final segment on bottom level leading to the exit
     fx, fy = width // 2, height - 1
-    segment = carve_corridor(grids[0], (x, y), (fx, fy))
+    segment = _find_path(grids[0], (x, y), (fx, fy))
     for cx, cy in segment[1:]:
         path.append((0, cx, cy))
+
     finish = (0, fx, fy)
     path.append(finish)
 
