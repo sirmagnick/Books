@@ -13,14 +13,24 @@ def _rerun() -> None:
 import importlib.util
 
 
-def run_3dmaze() -> None:
-    """Load and execute the 3dmaze module's main() function."""
-    spec = importlib.util.spec_from_file_location("maze3d", "3dmaze.py")
+def _run_module(path: str) -> None:
+    """Load and execute a module's main() function from a path."""
+    spec = importlib.util.spec_from_file_location(path, path)
     if spec and spec.loader:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         if hasattr(module, "main"):
             module.main()
+
+
+def run_3dmaze() -> None:
+    """Launch the 3D maze program."""
+    _run_module("3dmaze.py")
+
+
+def run_multi_maze() -> None:
+    """Launch the multi-maze program."""
+    _run_module("multi_maze.py")
 
 
 def show_menu() -> None:
@@ -30,6 +40,9 @@ def show_menu() -> None:
 
     if st.button("3d maze"):
         st.session_state["page"] = "3d maze"
+        _rerun()
+    if st.button("multi-maze"):
+        st.session_state["page"] = "multi-maze"
         _rerun()
     if st.button("test2"):
         st.session_state["page"] = "test2"
@@ -57,6 +70,11 @@ def main() -> None:
             st.session_state["page"] = "menu"
             _rerun()
         run_3dmaze()
+    elif page == "multi-maze":
+        if st.button("Back"):
+            st.session_state["page"] = "menu"
+            _rerun()
+        run_multi_maze()
     else:
         st.write(f"{page} clicked")
         if st.button("Back"):
