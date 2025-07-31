@@ -101,75 +101,74 @@ def _straight_path(start: Cell, end: Cell) -> List[Cell]:
 
 def generate_multi_maze(width: int, height: int, paths: int):
     paths = max(1, paths)
-    starts: List[Cell] = []
-    finishes: List[Cell] = []
-    lines: List[List[Cell]] = []
-    used: Set[Cell] = set()
-    attempts = 0
-    while len(lines) < paths and attempts < 500:
-        start = (random.randrange(width), random.randrange(height))
+    # build a full maze first
+    all_cells: Set[Cell] = {(x, y) for x in range(width) for y in range(height)}
+    grid = _generate_level(width, height, all_cells)
+
+    # choose start and finish for the main maze
+    start = (random.randrange(width), random.randrange(height))
+    finish = (random.randrange(width), random.randrange(height))
+    while finish == start:
         finish = (random.randrange(width), random.randrange(height))
-        if start == finish:
-            attempts += 1
+    main_path = _find_path(grid, start, finish)
+
+    starts: List[Cell] = [start]
+    finishes: List[Cell] = [finish]
+    solutions: List[List[Cell]] = [main_path]
+    used: Set[Cell] = set(main_path)
+
+    for _ in range(1, paths):
+        # find connected components not touching the existing solution paths
+        visited: Set[Cell] = set(used)
+        components: List[Tuple[int, Set[Cell], Cell, Tuple[int, int]]] = []
+        for x in range(width):
+            for y in range(height):
+                if (x, y) in visited:
+                    continue
+                stack = [(x, y)]
+                visited.add((x, y))
+                comp: Set[Cell] = {(x, y)}
+                connector: Cell | None = None
+                conn_dir: Tuple[int, int] | None = None
+                while stack:
+                    cx, cy = stack.pop()
+                    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                        nx, ny = cx + dx, cy + dy
+                        if 0 <= nx < width and 0 <= ny < height:
+                            if (nx, ny) in used and grid[cy * 2 + 1 + dy][cx * 2 + 1 + dx] == 1:
+                                connector = (cx, cy)
+                                conn_dir = (dx, dy)
+                            elif (
+                                (nx, ny) not in visited
+                                and grid[cy * 2 + 1 + dy][cx * 2 + 1 + dx] == 1
+                            ):
+                                visited.add((nx, ny))
+                                stack.append((nx, ny))
+                                comp.add((nx, ny))
+                if connector and conn_dir and comp:
+                    components.append((len(comp), comp, connector, conn_dir))
+        if not components:
+            break
+        components.sort(key=lambda t: t[0], reverse=True)
+        _, comp, connector, conn_dir = components[0]
+
+        # close the passage to isolate the component
+        cx, cy = connector
+        dx, dy = conn_dir
+        grid[cy * 2 + 1 + dy][cx * 2 + 1 + dx] = 0
+
+        comp_list = list(comp)
+        if len(comp_list) < 2:
+            used.update(comp)
             continue
-        line = _straight_path(start, finish)
-        if any(c in used for c in line):
-            attempts += 1
-            continue
-        lines.append(line)
-        starts.append(start)
-        finishes.append(finish)
-        used.update(line)
-    paths = len(lines)
+        s2, f2 = random.sample(comp_list, 2)
+        path2 = _find_path(grid, s2, f2)
+        starts.append(s2)
+        finishes.append(f2)
+        solutions.append(path2)
+        used.update(comp)
 
-    # assign cells to regions using multi-source BFS
-    region = [[-1 for _ in range(height)] for _ in range(width)]
-    from collections import deque
-    q = deque()
-    for idx, line in enumerate(lines):
-        for x, y in line:
-            region[x][y] = idx
-            q.append((x, y, idx))
-    dirs = [(1, 0), (-1, 0), (0, 1), (0, -1)]
-    while q:
-        x, y, idx = q.popleft()
-        random.shuffle(dirs)
-        for dx, dy in dirs:
-            nx, ny = x + dx, y + dy
-            if 0 <= nx < width and 0 <= ny < height and region[nx][ny] == -1:
-                region[nx][ny] = idx
-                q.append((nx, ny, idx))
-
-    regions: List[Set[Cell]] = [set() for _ in range(paths)]
-    for x in range(width):
-        for y in range(height):
-            idx = region[x][y]
-            if idx != -1 and (x, y) not in lines[idx]:
-                regions[idx].add((x, y))
-
-    full_grid = [[0] * (width * 2 + 1) for _ in range(height * 2 + 1)]
-    for cells in regions:
-        if not cells:
-            continue
-        reg_grid = _generate_level(width, height, cells)
-        for y in range(height * 2 + 1):
-            for x in range(width * 2 + 1):
-                if reg_grid[y][x]:
-                    full_grid[y][x] = 1
-
-    # carve corridors
-    for line in lines:
-        prev = None
-        for x, y in line:
-            full_grid[y * 2 + 1][x * 2 + 1] = 1
-            if prev:
-                dx = x - prev[0]
-                dy = y - prev[1]
-                full_grid[prev[1] * 2 + 1 + dy][prev[0] * 2 + 1 + dx] = 1
-            prev = (x, y)
-
-    solutions = [line for line in lines]
-    return full_grid, starts, finishes, solutions
+    return grid, starts, finishes, solutions
 
 
 def draw_maze(grid: List[List[int]], starts, finishes, solutions, cell_size=30, wall=2):
