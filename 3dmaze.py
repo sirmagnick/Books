@@ -4,7 +4,6 @@ from typing import List, Set, Tuple, Dict
 import streamlit as st
 from PIL import Image, ImageDraw
 from math import atan2, cos, sin, pi
-from multi_maze import generate_multi_maze
 
 Cell = Tuple[int, int]
 
@@ -85,131 +84,42 @@ def generate_maze(
     Cell,
     Cell,
 ]:
-    """Generate a 3D maze with a detour that revisits an upper floor."""
+    """Generate a 3D maze with a single descending path."""
 
-    # fallback to simple behaviour for small mazes
-    if levels < 5:
-        grids = [_generate_level(width, height) for _ in range(levels)]
-        up = [set() for _ in range(levels)]
-        down = [set() for _ in range(levels)]
-        path: List[Tuple[int, int, int]] = []
-        sx, sy = random.randrange(width), random.randrange(height)
-        start = (levels - 1, sx, sy)
-        path.append(start)
-        x, y = sx, sy
-        for level in range(levels - 1, 0, -1):
-            nx, ny = random.randrange(width), random.randrange(height)
-            segment = _find_path(grids[level], (x, y), (nx, ny))
-            for cx, cy in segment[1:]:
-                path.append((level, cx, cy))
-            down[level].add((nx, ny))
-            up[level - 1].add((nx, ny))
-            x, y = nx, ny
-            path.append((level - 1, x, y))
-        fx, fy = width // 2, height - 1
-        segment = _find_path(grids[0], (x, y), (fx, fy))
-        for cx, cy in segment[1:]:
-            path.append((0, cx, cy))
-        finish = (0, fx, fy)
-        path.append(finish)
-        return grids, up, down, path, start, finish
+    grids = [_generate_level(width, height) for _ in range(levels)]
+    up = [set() for _ in range(levels)]
+    down = [set() for _ in range(levels)]
 
-    branch_level = levels - 4
-
-    grids: List[List[List[int]]] = []
-    branch_info = None
-    for lvl in range(levels):
-        if lvl == branch_level:
-            grid, starts, finishes, solutions = generate_multi_maze(width, height, 2)
-            grids.append(grid)
-            branch_info = (starts, finishes, solutions)
-        else:
-            grids.append(_generate_level(width, height))
-
-    up: List[Set[Cell]] = [set() for _ in range(levels)]
-    down: List[Set[Cell]] = [set() for _ in range(levels)]
     path: List[Tuple[int, int, int]] = []
 
+    # starting cell on the top level
     sx, sy = random.randrange(width), random.randrange(height)
     start = (levels - 1, sx, sy)
     path.append(start)
+
     x, y = sx, sy
-    level = levels - 1
-
-    # descend until reaching the floor above the branching level
-    while level > branch_level + 1:
+    # walk down through each level exactly once
+    for level in range(levels - 1, 0, -1):
+        # choose a random cell on this level for the next elevator
         nx, ny = random.randrange(width), random.randrange(height)
         segment = _find_path(grids[level], (x, y), (nx, ny))
         for cx, cy in segment[1:]:
             path.append((level, cx, cy))
+
+        # create an elevator connecting to the level below
         down[level].add((nx, ny))
         up[level - 1].add((nx, ny))
+
+        # move to next level
         x, y = nx, ny
-        level -= 1
-        path.append((level, x, y))
+        path.append((level - 1, x, y))
 
-    if branch_info:
-        starts, finishes, solutions = branch_info
-        a_start, a_finish = starts[0], finishes[0]
-        b_start, b_finish = starts[1], finishes[1]
-        path_a, path_b = solutions[0], solutions[1]
-
-        # connect to first maze on branching floor
-        segment = _find_path(grids[level], (x, y), a_start)
-        for cx, cy in segment[1:]:
-            path.append((level, cx, cy))
-        down[level].add(a_start)
-        up[level - 1].add(a_start)
-        x, y = a_start
-        level -= 1
-        path.append((level, x, y))
-
-        # traverse first maze
-        for cx, cy in path_a[1:]:
-            path.append((level, cx, cy))
-
-        down[level].add(a_finish)
-        up[level - 1].add(a_finish)
-        x, y = a_finish
-        level -= 1
-        path.append((level, x, y))
-
-        # move on lower floor to entrance of second maze
-        segment = _find_path(grids[level], (x, y), b_start)
-        for cx, cy in segment[1:]:
-            path.append((level, cx, cy))
-        up[level].add(b_start)
-        down[level + 1].add(b_start)
-        x, y = b_start
-        level += 1
-        path.append((level, x, y))
-
-        # traverse second maze
-        for cx, cy in path_b[1:]:
-            path.append((level, cx, cy))
-
-        down[level].add(b_finish)
-        up[level - 1].add(b_finish)
-        x, y = b_finish
-        level -= 1
-        path.append((level, x, y))
-
-    # continue descending to the bottom
-    while level > 0:
-        nx, ny = random.randrange(width), random.randrange(height)
-        segment = _find_path(grids[level], (x, y), (nx, ny))
-        for cx, cy in segment[1:]:
-            path.append((level, cx, cy))
-        down[level].add((nx, ny))
-        up[level - 1].add((nx, ny))
-        x, y = nx, ny
-        level -= 1
-        path.append((level, x, y))
-
+    # final segment on bottom level leading to the exit
     fx, fy = width // 2, height - 1
     segment = _find_path(grids[0], (x, y), (fx, fy))
     for cx, cy in segment[1:]:
         path.append((0, cx, cy))
+
     finish = (0, fx, fy)
     path.append(finish)
 
