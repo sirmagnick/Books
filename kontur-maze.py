@@ -151,7 +151,6 @@ def generate_contour_maze(
     img: Image.Image,
     width: int,
     height: int,
-    cell_size: int,
     contour_pt: float,
     maze_pt: float,
     detail: float,
@@ -177,12 +176,16 @@ def generate_contour_maze(
     start = tuple(inside_full[0])
     end = tuple(inside_full[-1])
     path = _solve_maze(h_walls, v_walls, start, end, full_mask)
+    w_img, h_img = poly[:, 0].max(), poly[:, 1].max()
+    cell_size = min(w_img / width, h_img / height)
     w_svg = width * cell_size * scale
     h_svg = height * cell_size * scale
+    scale_x = w_svg / w_img
+    scale_y = h_svg / h_img
     poly_svg = []
     for x, y in poly:
-        sx = x / poly[:, 0].max() * w_svg
-        sy = y / poly[:, 1].max() * h_svg
+        sx = x * scale_x
+        sy = y * scale_y
         poly_svg.append((sx, sy))
     svg = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{w_svg}" height="{h_svg}" viewBox="0 0 {w_svg} {h_svg}">'
@@ -194,6 +197,37 @@ def generate_contour_maze(
     def inside_svg(x: float, y: float) -> bool:
         return _point_in_polygon(x, y, poly_svg)
 
+    def _segment_intersection(x1, y1, x2, y2, x3, y3, x4, y4):
+        denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+        if denom == 0:
+            return None
+        t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+        u = ((x1 - x3) * (y1 - y2) - (y1 - y3) * (x1 - x2)) / denom
+        if 0 <= t <= 1 and 0 <= u <= 1:
+            ix = x1 + t * (x2 - x1)
+            iy = y1 + t * (y2 - y1)
+            return t, ix, iy
+        return None
+
+    def _clip_segment(x1, y1, x2, y2):
+        pts = [(0.0, x1, y1), (1.0, x2, y2)]
+        n = len(poly_svg)
+        for i in range(n):
+            x3, y3 = poly_svg[i]
+            x4, y4 = poly_svg[(i + 1) % n]
+            inter = _segment_intersection(x1, y1, x2, y2, x3, y3, x4, y4)
+            if inter:
+                t, ix, iy = inter
+                pts.append((t, ix, iy))
+        pts.sort(key=lambda p: p[0])
+        segs = []
+        for a, b in zip(pts, pts[1:]):
+            mx = (a[1] + b[1]) / 2
+            my = (a[2] + b[2]) / 2
+            if inside_svg(mx, my):
+                segs.append((a[1], a[2], b[1], b[2]))
+        return segs
+
     for r in range(height + 1):
         for c in range(width):
             if h_walls[r, c]:
@@ -201,9 +235,9 @@ def generate_contour_maze(
                 y1 = r * cell_size * scale
                 x2 = (c + 1) * cell_size * scale
                 y2 = y1
-                if inside_svg(x1, y1) and inside_svg(x2, y2):
+                for sx1, sy1, sx2, sy2 in _clip_segment(x1, y1, x2, y2):
                     svg.append(
-                        f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="black" stroke-width="{maze_pt}pt" />'
+                        f'<line x1="{sx1}" y1="{sy1}" x2="{sx2}" y2="{sy2}" stroke="black" stroke-width="{maze_pt}pt" />'
                     )
     for r in range(height):
         for c in range(width + 1):
@@ -212,9 +246,9 @@ def generate_contour_maze(
                 y1 = r * cell_size * scale
                 x2 = x1
                 y2 = (r + 1) * cell_size * scale
-                if inside_svg(x1, y1) and inside_svg(x2, y2):
+                for sx1, sy1, sx2, sy2 in _clip_segment(x1, y1, x2, y2):
                     svg.append(
-                        f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="black" stroke-width="{maze_pt}pt" />'
+                        f'<line x1="{sx1}" y1="{sy1}" x2="{sx2}" y2="{sy2}" stroke="black" stroke-width="{maze_pt}pt" />'
                     )
     sx = start[1] * cell_size * scale + (cell_size * scale) / 2
     sy = start[0] * cell_size * scale + (cell_size * scale) / 2
@@ -223,21 +257,22 @@ def generate_contour_maze(
     svg.append(f'<circle cx="{sx}" cy="{sy}" r="{cell_size * scale / 3}" fill="green" />')
     svg.append(f'<circle cx="{ex}" cy="{ey}" r="{cell_size * scale / 3}" fill="red" />')
     if show_solution:
-        pts = []
-        for r, c in path:
-            x = c * cell_size * scale + (cell_size * scale) / 2
-            y = r * cell_size * scale + (cell_size * scale) / 2
-            pts.append((x, y))
-        filt = [pts[0]]
-        for i in range(1, len(pts)):
-            mx = (pts[i - 1][0] + pts[i][0]) / 2
-            my = (pts[i - 1][1] + pts[i][1]) / 2
-            if inside_svg(mx, my):
-                filt.append(pts[i])
-        pts_str = " ".join(f"{x},{y}" for x, y in filt)
-        svg.append(
-            f'<polyline points="{pts_str}" fill="none" stroke="blue" stroke-width="{maze_pt}pt" />'
-        )
+        sol_segs = []
+        pts = [
+            (
+                c * cell_size * scale + (cell_size * scale) / 2,
+                r * cell_size * scale + (cell_size * scale) / 2,
+            )
+            for r, c in path
+        ]
+        for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+            sol_segs.extend(_clip_segment(x1, y1, x2, y2))
+        if sol_segs:
+            lines = "".join(
+                f'<line x1="{sx1}" y1="{sy1}" x2="{sx2}" y2="{sy2}" stroke="blue" stroke-width="{maze_pt}pt" />'
+                for sx1, sy1, sx2, sy2 in sol_segs
+            )
+            svg.append(lines)
     svg.append("</svg>")
     return "\n".join(svg), w_svg, h_svg
 
@@ -247,29 +282,30 @@ def main() -> None:
     uploaded = st.file_uploader("Wczytaj obraz", type=["png", "jpg", "jpeg"])
     width = st.sidebar.number_input("width", min_value=5, max_value=200, value=20)
     height = st.sidebar.number_input("height", min_value=5, max_value=200, value=20)
-    cell = st.sidebar.number_input("cell size", min_value=5, max_value=100, value=20)
     contour_pt = st.sidebar.number_input("Grubość konturu (pt)", min_value=1.0, value=3.0)
     maze_pt = st.sidebar.number_input("Grubość labiryntu (pt)", min_value=0.5, value=1.0)
     detail = st.sidebar.slider("poziom detali", 1.0, 10.0, 2.0)
     smooth = st.sidebar.slider("wygładzenie", 0, 5, 0)
     scale = st.sidebar.slider("skala", 0.5, 5.0, 1.0)
-    show_solution = st.checkbox("rozwiązanie")
     generate = st.button("generuj")
     if generate:
         st.session_state["kontur_run"] = True
     if uploaded and st.session_state.get("kontur_run"):
+        if st.button("rozwiązanie"):
+            st.session_state["show_solution"] = not st.session_state.get(
+                "show_solution", False
+            )
         img = Image.open(uploaded)
         svg, w, h = generate_contour_maze(
             img,
             width,
             height,
-            cell,
             contour_pt,
             maze_pt,
             detail,
             smooth,
             scale,
-            show_solution,
+            st.session_state.get("show_solution", False),
         )
         st.components.v1.html(svg, height=int(h * 1.1))
         st.download_button(
