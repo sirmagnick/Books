@@ -1,8 +1,6 @@
 import random
 from typing import List, Tuple
 from collections import deque
-import subprocess
-import sys
 
 import numpy as np
 import streamlit as st
@@ -10,19 +8,11 @@ from PIL import Image, ImageFilter
 
 try:
     from skimage import measure
-except ModuleNotFoundError:  # pragma: no cover - fallback install
-    subprocess.check_call(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--quiet",
-            "--no-cache-dir",
-            "scikit-image",
-        ]
-    )
-    from skimage import measure
+except ModuleNotFoundError as exc:
+    raise ModuleNotFoundError(
+        "scikit-image is required to compute image contours. "
+        "Please add it to your environment's dependencies."
+    ) from exc
 
 Cell = Tuple[int, int]
 
