@@ -386,21 +386,24 @@ def main() -> None:
                 )
                 components.html(html, height=int(h_svg) + 10)
                 clicked = st.session_state.get("clicked_cell")
+                rerun = False
                 if clicked:
                     try:
                         r, c = map(int, clicked.split(","))
                         if st.session_state.get("start") is None:
                             st.session_state["start"] = (r, c)
-                            st.session_state["clicked_cell"] = ""
-                            st.experimental_rerun()
+                            rerun = True
                         elif st.session_state.get("end") is None and (r, c) != st.session_state.get(
                             "start"
                         ):
                             st.session_state["end"] = (r, c)
-                            st.session_state["clicked_cell"] = ""
-                            st.experimental_rerun()
+                            rerun = True
                     except Exception:
                         pass
+                    finally:
+                        st.session_state["clicked_cell"] = ""
+                if rerun:
+                    st.experimental_rerun()
                 st.write("Start:", st.session_state.get("start"))
                 st.write("End:", st.session_state.get("end"))
 
@@ -409,24 +412,23 @@ def main() -> None:
                 and st.session_state.get("end") is not None
                 and st.session_state.get("maze_svg") is None
             ):
-                if st.button("generuj"):
-                    maze_svg, sol_svg, w_svg, h_svg = generate_contour_maze(
-                        img,
-                        width,
-                        height,
-                        contour_pt,
-                        maze_pt,
-                        detail,
-                        smooth,
-                        scale,
-                        st.session_state["start"],
-                        st.session_state["end"],
-                    )
-                    st.session_state["maze_svg"] = maze_svg
-                    st.session_state["solution_svg"] = sol_svg
-                    st.session_state["w_svg"] = w_svg
-                    st.session_state["h_svg"] = h_svg
-                    st.experimental_rerun()
+                maze_svg, sol_svg, w_svg, h_svg = generate_contour_maze(
+                    img,
+                    width,
+                    height,
+                    contour_pt,
+                    maze_pt,
+                    detail,
+                    smooth,
+                    scale,
+                    st.session_state["start"],
+                    st.session_state["end"],
+                )
+                st.session_state["maze_svg"] = maze_svg
+                st.session_state["solution_svg"] = sol_svg
+                st.session_state["w_svg"] = w_svg
+                st.session_state["h_svg"] = h_svg
+                st.experimental_rerun()
 
             if st.session_state.get("maze_svg"):
                 if st.button("rozwiązanie"):
