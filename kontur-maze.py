@@ -1,206 +1,219 @@
 import random
-from typing import List, Tuple
 from collections import deque
+from typing import List, Tuple
 
 import numpy as np
+from PIL import Image
 import streamlit as st
-from PIL import Image, ImageFilter
 
 try:
     from skimage import measure
-except ModuleNotFoundError as exc:
-    raise ModuleNotFoundError(
-        "scikit-image is required to compute image contours. "
-        "Please add it to your environment's dependencies."
-    ) from exc
-
-Cell = Tuple[int, int]
+except Exception as e:  # pragma: no cover - informative message
+    raise RuntimeError("scikit-image is required for contour extraction") from e
 
 
-def _carve_maze_mask(allowed: np.ndarray) -> Tuple[List[List[int]], Cell]:
-    """Carve a maze confined to the allowed mask."""
-    h, w = allowed.shape
-    grid = [[1] * (w * 2 + 1) for _ in range(h * 2 + 1)]
-    start: Cell = (0, 0)
-    found = False
-    for y in range(h):
-        for x in range(w):
-            if allowed[y, x]:
-                start = (x, y)
-                found = True
-                break
-        if found:
-            break
+def _point_in_polygon(x: float, y: float, poly: List[Tuple[float, float]]) -> bool:
+    inside = False
+    n = len(poly)
+    px = [p[0] for p in poly]
+    py = [p[1] for p in poly]
+    j = n - 1
+    for i in range(n):
+        if ((py[i] > y) != (py[j] > y)) and (
+            x < (px[j] - px[i]) * (y - py[i]) / (py[j] - py[i]) + px[i]
+        ):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _maze_mask_from_polygon(width: int, height: int, poly: np.ndarray) -> np.ndarray:
+    grid_poly = []
+    for x, y in poly:
+        gx = x / poly[:, 0].max() * width
+        gy = y / poly[:, 1].max() * height
+        grid_poly.append((gx, gy))
+    mask = np.zeros((height, width), dtype=bool)
+    for r in range(height):
+        for c in range(width):
+            if _point_in_polygon(c + 0.5, r + 0.5, grid_poly):
+                mask[r, c] = True
+    return mask
+
+
+def _generate_maze(grid_mask: np.ndarray):
+    h, w = grid_mask.shape
+    visited = np.zeros_like(grid_mask)
+    h_walls = np.ones((h + 1, w), dtype=bool)
+    v_walls = np.ones((h, w + 1), dtype=bool)
+    start = tuple(np.argwhere(grid_mask)[0])
     stack = [start]
-    visited = {start}
+    visited[start] = True
     dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)]
     while stack:
-        x, y = stack[-1]
-        grid[y * 2 + 1][x * 2 + 1] = 0
-        neighbors = []
-        for dx, dy in dirs:
-            nx, ny = x + dx, y + dy
-            if 0 <= nx < w and 0 <= ny < h and allowed[ny, nx] and (nx, ny) not in visited:
-                neighbors.append((nx, ny, dx, dy))
-        if neighbors:
-            nx, ny, dx, dy = random.choice(neighbors)
-            grid[y * 2 + 1 + dy][x * 2 + 1 + dx] = 0
-            visited.add((nx, ny))
-            stack.append((nx, ny))
+        r, c = stack[-1]
+        neigh = []
+        for dr, dc in dirs:
+            nr, nc = r + dr, c + dc
+            if (
+                0 <= nr < h
+                and 0 <= nc < w
+                and grid_mask[nr, nc]
+                and not visited[nr, nc]
+            ):
+                neigh.append((nr, nc, dr, dc))
+        if neigh:
+            nr, nc, dr, dc = random.choice(neigh)
+            if dr == 1:
+                h_walls[r + 1, c] = False
+            if dr == -1:
+                h_walls[r, c] = False
+            if dc == 1:
+                v_walls[r, c + 1] = False
+            if dc == -1:
+                v_walls[r, c] = False
+            visited[nr, nc] = True
+            stack.append((nr, nc))
         else:
             stack.pop()
-    return grid, start
+    inside = np.argwhere(grid_mask)
+    start = tuple(inside[0])
+    end = tuple(inside[-1])
+    return h_walls, v_walls, start, end
 
 
-def _solve_maze(grid: List[List[int]], start: Cell, allowed: np.ndarray) -> Tuple[Cell, List[Cell]]:
-    """Find farthest reachable cell and path from start."""
-    w = allowed.shape[1]
-    h = allowed.shape[0]
+def _solve_maze(h_walls, v_walls, start, end, mask):
+    h, w = mask.shape
+    q = deque([start])
+    prev = {start: None}
     dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-    dist = {start: 0}
-    queue = deque([start])
-    while queue:
-        x, y = queue.popleft()
-        for dx, dy in dirs:
-            nx, ny = x + dx, y + dy
-            if (
-                0 <= nx < w
-                and 0 <= ny < h
-                and allowed[ny, nx]
-                and grid[y * 2 + 1 + dy][x * 2 + 1 + dx] == 0
-                and (nx, ny) not in dist
-            ):
-                dist[(nx, ny)] = dist[(x, y)] + 1
-                queue.append((nx, ny))
-    end = max(dist, key=dist.get)
-    path = [end]
-    while path[-1] != start:
-        x, y = path[-1]
-        for dx, dy in dirs:
-            nx, ny = x + dx, y + dy
-            if (
-                (nx, ny) in dist
-                and dist[(nx, ny)] == dist[(x, y)] - 1
-                and grid[y * 2 + 1 + dy][x * 2 + 1 + dx] == 0
-            ):
-                path.append((nx, ny))
-                break
-    path.reverse()
-    return end, path
+    while q:
+        r, c = q.popleft()
+        if (r, c) == end:
+            break
+        for dr, dc in dirs:
+            nr, nc = r + dr, c + dc
+            if not (0 <= nr < h and 0 <= nc < w and mask[nr, nc]):
+                continue
+            if (nr, nc) in prev:
+                continue
+            if dr == 1 and h_walls[r + 1, c]:
+                continue
+            if dr == -1 and h_walls[r, c]:
+                continue
+            if dc == 1 and v_walls[r, c + 1]:
+                continue
+            if dc == -1 and v_walls[r, c]:
+                continue
+            prev[(nr, nc)] = (r, c)
+            q.append((nr, nc))
+    path = []
+    node = end
+    while node is not None:
+        path.append(node)
+        node = prev.get(node)
+    return path[::-1]
 
 
 def generate_contour_maze(
-    src: Image.Image,
-    w: int,
-    h: int,
-    scale: int,
+    img: Image.Image,
+    width: int,
+    height: int,
+    cell_size: int,
     contour_pt: float,
     maze_pt: float,
+    detail: float,
+    scale: float,
     show_solution: bool,
-) -> Tuple[str, int, int]:
-    """Generate maze inside image contour and return SVG string."""
-    allowed = np.array(src.convert("L").resize((w, h), Image.LANCZOS)) < 128
-    grid, start = _carve_maze_mask(allowed)
-    end, solution = _solve_maze(grid, start, allowed)
-
-    width_px = w * scale
-    height_px = h * scale
-    mask_svg = (
-        src.convert("L")
-        .resize((width_px, height_px), Image.LANCZOS)
-        .filter(ImageFilter.GaussianBlur(1))
+):
+    gray = img.convert("L")
+    arr = np.array(gray)
+    arr = arr < 128
+    contours = measure.find_contours(arr.astype(float), 0.5)
+    if not contours:
+        raise ValueError("Nie znaleziono konturu")
+    contour = max(contours, key=len)
+    poly = measure.approximate_polygon(contour, tolerance=detail)
+    poly -= poly.min(axis=0)
+    mask = _maze_mask_from_polygon(width, height, poly)
+    h_walls, v_walls, start, end = _generate_maze(mask)
+    path = _solve_maze(h_walls, v_walls, start, end, mask)
+    w_svg = width * cell_size * scale
+    h_svg = height * cell_size * scale
+    poly_svg = []
+    for x, y in poly:
+        sx = x / poly[:, 0].max() * w_svg
+        sy = y / poly[:, 1].max() * h_svg
+        poly_svg.append((sx, sy))
+    svg = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w_svg}" height="{h_svg}" viewBox="0 0 {w_svg} {h_svg}">'
+    ]
+    path_d = "M " + " ".join(f"{x},{y}" for x, y in poly_svg) + " Z"
+    svg.append(
+        f'<path d="{path_d}" fill="none" stroke="black" stroke-width="{contour_pt}pt" />'
     )
-    mask_np = np.array(mask_svg) < 128
-    contours = measure.find_contours(mask_np.astype(float), 0.5)
-    contour = max(contours, key=len) if contours else []
-
-    svg_parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width_px}" height="{height_px}" viewBox="0 0 {width_px} {height_px}">']
-    if len(contour):
-        pts = [(p[1], p[0]) for p in contour]
-        d = "M " + " L ".join(f"{x} {y}" for x, y in pts) + " Z"
-        svg_parts.append(
-            f'<path d="{d}" stroke="black" fill="none" stroke-width="{contour_pt}pt"/>'
-        )
-
-    cell = scale
-    for y in range(h):
-        for x in range(w):
-            if not allowed[y, x]:
-                continue
-            if x + 1 < w and allowed[y, x + 1] and grid[y * 2 + 1][x * 2 + 2] == 1:
-                x1 = (x + 1) * cell
-                y1 = y * cell
-                y2 = (y + 1) * cell
-                svg_parts.append(
-                    f'<line x1="{x1}" y1="{y1}" x2="{x1}" y2="{y2}" stroke="black" stroke-width="{maze_pt}pt"/>'
-                )
-            if y + 1 < h and allowed[y + 1, x] and grid[y * 2 + 2][x * 2 + 1] == 1:
-                y1 = (y + 1) * cell
-                x1 = x * cell
-                x2 = (x + 1) * cell
-                svg_parts.append(
-                    f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y1}" stroke="black" stroke-width="{maze_pt}pt"/>'
-                )
-
-    def center(c: Cell) -> Tuple[float, float]:
-        cx, cy = c
-        return (cx + 0.5) * cell, (cy + 0.5) * cell
-
-    sx, sy = center(start)
-    ex, ey = center(end)
-    svg_parts.append(
-        f'<circle cx="{sx}" cy="{sy}" r="{cell * 0.2}" fill="green"/>'
-    )
-    svg_parts.append(
-        f'<circle cx="{ex}" cy="{ey}" r="{cell * 0.2}" fill="red"/>'
-    )
-
+    for r in range(height + 1):
+        for c in range(width):
+            if h_walls[r, c]:
+                x1 = c * cell_size * scale
+                y1 = r * cell_size * scale
+                x2 = (c + 1) * cell_size * scale
+                y2 = y1
+                if r < height and mask[r, c] or r > 0 and mask[r - 1, c]:
+                    svg.append(
+                        f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="black" stroke-width="{maze_pt}pt" />'
+                    )
+    for r in range(height):
+        for c in range(width + 1):
+            if v_walls[r, c]:
+                x1 = c * cell_size * scale
+                y1 = r * cell_size * scale
+                x2 = x1
+                y2 = (r + 1) * cell_size * scale
+                if c < width and mask[r, c] or c > 0 and mask[r, c - 1]:
+                    svg.append(
+                        f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="black" stroke-width="{maze_pt}pt" />'
+                    )
+    sx = start[1] * cell_size * scale + (cell_size * scale) / 2
+    sy = start[0] * cell_size * scale + (cell_size * scale) / 2
+    ex = end[1] * cell_size * scale + (cell_size * scale) / 2
+    ey = end[0] * cell_size * scale + (cell_size * scale) / 2
+    svg.append(f'<circle cx="{sx}" cy="{sy}" r="{cell_size * scale / 3}" fill="green" />')
+    svg.append(f'<circle cx="{ex}" cy="{ey}" r="{cell_size * scale / 3}" fill="red" />')
     if show_solution:
-        pts = [center(p) for p in solution]
-        pts_str = " ".join(f"{x},{y}" for x, y in pts)
-        svg_parts.append(
-            f'<polyline points="{pts_str}" stroke="blue" fill="none" stroke-width="{maze_pt}pt"/>'
+        points = []
+        for r, c in path:
+            x = c * cell_size * scale + (cell_size * scale) / 2
+            y = r * cell_size * scale + (cell_size * scale) / 2
+            points.append(f"{x},{y}")
+        svg.append(
+            f'<polyline points="{' '.join(points)}" fill="none" stroke="blue" stroke-width="{maze_pt}pt" />'
         )
-
-    svg_parts.append("</svg>")
-    return "".join(svg_parts), width_px, height_px
+    svg.append("</svg>")
+    return "\n".join(svg), w_svg, h_svg
 
 
 def main() -> None:
-    st.title("kontur maze")
-    uploaded = st.file_uploader("Upload image", type=["png", "jpg", "jpeg"])
-    if "kontur_show_solution" not in st.session_state:
-        st.session_state["kontur_show_solution"] = False
-    with st.sidebar:
-        w = st.number_input("width", 5, 100, 20)
-        h = st.number_input("height", 5, 100, 20)
-        scale = st.number_input("scale", 1, 50, 10)
-        contour_thick = st.number_input("grubość konturu (pt)", 0.1, 20.0, 3.0)
-        maze_thick = st.number_input("grubość labiryntu (pt)", 0.1, 10.0, 1.0)
-        generate = st.button("Generate")
-        if st.button("rozwiązanie"):
-            st.session_state["kontur_show_solution"] = not st.session_state[
-                "kontur_show_solution"
-            ]
-    show_solution = st.session_state["kontur_show_solution"]
-    if generate:
-        if uploaded is None:
-            st.warning("Please upload an image.")
-        else:
-            src = Image.open(uploaded)
-            svg, w_px, h_px = generate_contour_maze(
-                src,
-                int(w),
-                int(h),
-                int(scale),
-                float(contour_thick),
-                float(maze_thick),
-                show_solution,
-            )
-            st.components.v1.html(svg, height=h_px + 10)
-            st.download_button("Download SVG", svg, file_name="maze.svg")
+    st.title("Kontur Maze")
+    uploaded = st.file_uploader("Wczytaj obraz", type=["png", "jpg", "jpeg"])
+    width = st.sidebar.number_input("width", min_value=5, max_value=200, value=20)
+    height = st.sidebar.number_input("height", min_value=5, max_value=200, value=20)
+    cell = st.sidebar.number_input("cell size", min_value=5, max_value=100, value=20)
+    contour_pt = st.sidebar.number_input("Grubość konturu (pt)", min_value=1.0, value=3.0)
+    maze_pt = st.sidebar.number_input("Grubość labiryntu (pt)", min_value=0.5, value=1.0)
+    detail = st.sidebar.slider("poziom detali", 1.0, 10.0, 2.0)
+    scale = st.sidebar.slider("skala", 0.5, 5.0, 1.0)
+    show_solution = st.checkbox("rozwiązanie")
+    if uploaded:
+        img = Image.open(uploaded)
+        svg, w, h = generate_contour_maze(
+            img, width, height, cell, contour_pt, maze_pt, detail, scale, show_solution
+        )
+        st.components.v1.html(svg, height=int(h * 1.1))
+        st.download_button(
+            "pobierz", data=svg, file_name="maze.svg", mime="image/svg+xml"
+        )
 
 
 if __name__ == "__main__":
     main()
-
