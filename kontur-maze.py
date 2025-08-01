@@ -36,18 +36,41 @@ def _point_in_polygon(x: float, y: float, poly: List[Tuple[float, float]]) -> bo
     return inside
 
 
-def _maze_mask_from_polygon(width: int, height: int, poly: np.ndarray) -> np.ndarray:
-    grid_poly = []
+def _masks_from_polygon(
+    width: int, height: int, poly: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray]:
+    grid_poly: List[Tuple[float, float]] = []
     for x, y in poly:
         gx = x / poly[:, 0].max() * width
         gy = y / poly[:, 1].max() * height
         grid_poly.append((gx, gy))
-    mask = np.zeros((height, width), dtype=bool)
+    center_mask = np.zeros((height, width), dtype=bool)
+    full_mask = np.zeros((height, width), dtype=bool)
     for r in range(height):
         for c in range(width):
-            if _point_in_polygon(c + 0.5, r + 0.5, grid_poly):
-                mask[r, c] = True
-    return mask
+            cx, cy = c + 0.5, r + 0.5
+            if _point_in_polygon(cx, cy, grid_poly):
+                center_mask[r, c] = True
+            corners = [(c, r), (c + 1, r), (c, r + 1), (c + 1, r + 1)]
+            if all(_point_in_polygon(x, y, grid_poly) for x, y in corners):
+                full_mask[r, c] = True
+    return center_mask, full_mask
+
+
+def _smooth_polygon(poly: np.ndarray, iterations: int) -> np.ndarray:
+    if iterations <= 0:
+        return poly
+    if not np.array_equal(poly[0], poly[-1]):
+        poly = np.vstack([poly, poly[0]])
+    for _ in range(iterations):
+        new_pts = []
+        for i in range(len(poly) - 1):
+            p0, p1 = poly[i], poly[i + 1]
+            q = 0.75 * p0 + 0.25 * p1
+            r = 0.25 * p0 + 0.75 * p1
+            new_pts.extend([q, r])
+        poly = np.array(new_pts + [new_pts[0]])
+    return poly
 
 
 def _generate_maze(grid_mask: np.ndarray):
@@ -132,6 +155,7 @@ def generate_contour_maze(
     contour_pt: float,
     maze_pt: float,
     detail: float,
+    smooth: float,
     scale: float,
     show_solution: bool,
 ):
@@ -143,10 +167,16 @@ def generate_contour_maze(
         raise ValueError("Nie znaleziono konturu")
     contour = max(contours, key=len)
     poly = measure.approximate_polygon(contour, tolerance=detail)
+    poly = _smooth_polygon(poly, int(smooth))
     poly -= poly.min(axis=0)
-    mask = _maze_mask_from_polygon(width, height, poly)
-    h_walls, v_walls, start, end = _generate_maze(mask)
-    path = _solve_maze(h_walls, v_walls, start, end, mask)
+    mask, full_mask = _masks_from_polygon(width, height, poly)
+    h_walls, v_walls, _, _ = _generate_maze(mask)
+    inside_full = np.argwhere(full_mask)
+    if len(inside_full) < 2:
+        raise ValueError("Kontur zbyt mały dla labiryntu")
+    start = tuple(inside_full[0])
+    end = tuple(inside_full[-1])
+    path = _solve_maze(h_walls, v_walls, start, end, full_mask)
     w_svg = width * cell_size * scale
     h_svg = height * cell_size * scale
     poly_svg = []
@@ -161,6 +191,9 @@ def generate_contour_maze(
     svg.append(
         f'<path d="{path_d}" fill="none" stroke="black" stroke-width="{contour_pt}pt" />'
     )
+    def inside_svg(x: float, y: float) -> bool:
+        return _point_in_polygon(x, y, poly_svg)
+
     for r in range(height + 1):
         for c in range(width):
             if h_walls[r, c]:
@@ -168,7 +201,7 @@ def generate_contour_maze(
                 y1 = r * cell_size * scale
                 x2 = (c + 1) * cell_size * scale
                 y2 = y1
-                if r < height and mask[r, c] or r > 0 and mask[r - 1, c]:
+                if inside_svg(x1, y1) and inside_svg(x2, y2):
                     svg.append(
                         f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="black" stroke-width="{maze_pt}pt" />'
                     )
@@ -179,7 +212,7 @@ def generate_contour_maze(
                 y1 = r * cell_size * scale
                 x2 = x1
                 y2 = (r + 1) * cell_size * scale
-                if c < width and mask[r, c] or c > 0 and mask[r, c - 1]:
+                if inside_svg(x1, y1) and inside_svg(x2, y2):
                     svg.append(
                         f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="black" stroke-width="{maze_pt}pt" />'
                     )
@@ -190,13 +223,20 @@ def generate_contour_maze(
     svg.append(f'<circle cx="{sx}" cy="{sy}" r="{cell_size * scale / 3}" fill="green" />')
     svg.append(f'<circle cx="{ex}" cy="{ey}" r="{cell_size * scale / 3}" fill="red" />')
     if show_solution:
-        points = []
+        pts = []
         for r, c in path:
             x = c * cell_size * scale + (cell_size * scale) / 2
             y = r * cell_size * scale + (cell_size * scale) / 2
-            points.append(f"{x},{y}")
+            pts.append((x, y))
+        filt = [pts[0]]
+        for i in range(1, len(pts)):
+            mx = (pts[i - 1][0] + pts[i][0]) / 2
+            my = (pts[i - 1][1] + pts[i][1]) / 2
+            if inside_svg(mx, my):
+                filt.append(pts[i])
+        pts_str = " ".join(f"{x},{y}" for x, y in filt)
         svg.append(
-            f'<polyline points="{' '.join(points)}" fill="none" stroke="blue" stroke-width="{maze_pt}pt" />'
+            f'<polyline points="{pts_str}" fill="none" stroke="blue" stroke-width="{maze_pt}pt" />'
         )
     svg.append("</svg>")
     return "\n".join(svg), w_svg, h_svg
@@ -211,12 +251,25 @@ def main() -> None:
     contour_pt = st.sidebar.number_input("Grubość konturu (pt)", min_value=1.0, value=3.0)
     maze_pt = st.sidebar.number_input("Grubość labiryntu (pt)", min_value=0.5, value=1.0)
     detail = st.sidebar.slider("poziom detali", 1.0, 10.0, 2.0)
+    smooth = st.sidebar.slider("wygładzenie", 0, 5, 0)
     scale = st.sidebar.slider("skala", 0.5, 5.0, 1.0)
     show_solution = st.checkbox("rozwiązanie")
-    if uploaded:
+    generate = st.button("generuj")
+    if generate:
+        st.session_state["kontur_run"] = True
+    if uploaded and st.session_state.get("kontur_run"):
         img = Image.open(uploaded)
         svg, w, h = generate_contour_maze(
-            img, width, height, cell, contour_pt, maze_pt, detail, scale, show_solution
+            img,
+            width,
+            height,
+            cell,
+            contour_pt,
+            maze_pt,
+            detail,
+            smooth,
+            scale,
+            show_solution,
         )
         st.components.v1.html(svg, height=int(h * 1.1))
         st.download_button(
