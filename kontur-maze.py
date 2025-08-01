@@ -6,10 +6,19 @@ import numpy as np
 from PIL import Image
 import streamlit as st
 
-try:
+try:  # pragma: no cover - runtime dependency check
     from skimage import measure
-except Exception as e:  # pragma: no cover - informative message
-    raise RuntimeError("scikit-image is required for contour extraction") from e
+except Exception:
+    import sys
+    import subprocess
+    import tempfile
+
+    tmp = tempfile.mkdtemp()
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "--no-cache-dir", "--target", tmp, "scikit-image"]
+    )
+    sys.path.append(tmp)
+    from skimage import measure
 
 
 def _point_in_polygon(x: float, y: float, poly: List[Tuple[float, float]]) -> bool:
