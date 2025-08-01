@@ -5,7 +5,15 @@ from collections import deque
 import numpy as np
 import streamlit as st
 from PIL import Image, ImageFilter
-import svgwrite
+
+try:  # ensure svgwrite is available at runtime
+    import svgwrite
+except ImportError:  # pragma: no cover - best effort install
+    import subprocess, sys
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "svgwrite"])  # type: ignore[no-untyped-call]
+    import svgwrite
+
 from skimage import measure
 
 Cell = Tuple[int, int]
