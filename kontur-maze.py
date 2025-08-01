@@ -6,14 +6,6 @@ import numpy as np
 import streamlit as st
 from PIL import Image, ImageFilter
 
-try:  # ensure svgwrite is available at runtime
-    import svgwrite
-except ImportError:  # pragma: no cover - best effort install
-    import subprocess, sys
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "svgwrite"])  # type: ignore[no-untyped-call]
-    import svgwrite
-
 from skimage import measure
 
 Cell = Tuple[int, int]
@@ -116,17 +108,13 @@ def generate_contour_maze(
     contours = measure.find_contours(mask_np.astype(float), 0.5)
     contour = max(contours, key=len) if contours else []
 
-    dwg = svgwrite.Drawing(size=(width_px, height_px))
+    svg_parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width_px}" height="{height_px}" viewBox="0 0 {width_px} {height_px}">']
     if len(contour):
-        path = svgwrite.path.Path(
-            stroke="black", fill="none", stroke_width=f"{contour_pt}pt"
-        )
         pts = [(p[1], p[0]) for p in contour]
-        path.push("M", pts[0][0], pts[0][1])
-        for x, y in pts[1:]:
-            path.push("L", x, y)
-        path.push("Z")
-        dwg.add(path)
+        d = "M " + " L ".join(f"{x} {y}" for x, y in pts) + " Z"
+        svg_parts.append(
+            f'<path d="{d}" stroke="black" fill="none" stroke-width="{contour_pt}pt"/>'
+        )
 
     cell = scale
     for y in range(h):
@@ -137,43 +125,39 @@ def generate_contour_maze(
                 x1 = (x + 1) * cell
                 y1 = y * cell
                 y2 = (y + 1) * cell
-                dwg.add(
-                    dwg.line(
-                        start=(x1, y1),
-                        end=(x1, y2),
-                        stroke="black",
-                        stroke_width=f"{maze_pt}pt",
-                    )
+                svg_parts.append(
+                    f'<line x1="{x1}" y1="{y1}" x2="{x1}" y2="{y2}" stroke="black" stroke-width="{maze_pt}pt"/>'
                 )
             if y + 1 < h and allowed[y + 1, x] and grid[y * 2 + 2][x * 2 + 1] == 1:
                 y1 = (y + 1) * cell
                 x1 = x * cell
                 x2 = (x + 1) * cell
-                dwg.add(
-                    dwg.line(
-                        start=(x1, y1),
-                        end=(x2, y1),
-                        stroke="black",
-                        stroke_width=f"{maze_pt}pt",
-                    )
+                svg_parts.append(
+                    f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y1}" stroke="black" stroke-width="{maze_pt}pt"/>'
                 )
 
     def center(c: Cell) -> Tuple[float, float]:
         cx, cy = c
         return (cx + 0.5) * cell, (cy + 0.5) * cell
 
-    dwg.add(dwg.circle(center=center(start), r=cell * 0.2, fill="green"))
-    dwg.add(dwg.circle(center=center(end), r=cell * 0.2, fill="red"))
+    sx, sy = center(start)
+    ex, ey = center(end)
+    svg_parts.append(
+        f'<circle cx="{sx}" cy="{sy}" r="{cell * 0.2}" fill="green"/>'
+    )
+    svg_parts.append(
+        f'<circle cx="{ex}" cy="{ey}" r="{cell * 0.2}" fill="red"/>'
+    )
 
     if show_solution:
         pts = [center(p) for p in solution]
-        dwg.add(
-            dwg.polyline(
-                points=pts, stroke="blue", fill="none", stroke_width=f"{maze_pt}pt"
-            )
+        pts_str = " ".join(f"{x},{y}" for x, y in pts)
+        svg_parts.append(
+            f'<polyline points="{pts_str}" stroke="blue" fill="none" stroke-width="{maze_pt}pt"/>'
         )
 
-    return dwg.tostring(), width_px, height_px
+    svg_parts.append("</svg>")
+    return "".join(svg_parts), width_px, height_px
 
 
 def main() -> None:
