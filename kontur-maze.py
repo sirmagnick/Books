@@ -5,6 +5,7 @@ from typing import List, Tuple
 import numpy as np
 from PIL import Image
 import streamlit as st
+import streamlit.components.v1 as components
 
 try:  # pragma: no cover - runtime dependency check
     from skimage import measure
@@ -373,8 +374,8 @@ def main() -> None:
                 + "</svg>"
                 + script
             )
-            selection = st.components.v1.html(html, height=int(h_svg) + 10)
-            if selection:
+            selection = components.html(html, height=int(h_svg) + 10)
+            if isinstance(selection, str) and selection:
                 r, c = map(int, selection.split(","))
                 if st.session_state.get("start") is None:
                     st.session_state["start"] = (r, c)
