@@ -314,13 +314,11 @@ def main() -> None:
     detail = st.sidebar.slider("poziom detali", 1.0, 10.0, 2.0)
     smooth = st.sidebar.slider("wygładzenie", 0, 5, 0)
     scale = st.sidebar.slider("skala", 0.5, 5.0, 1.0)
+    start_btn = st.sidebar.button("start")
 
     if uploaded:
         img = Image.open(uploaded)
-        if (
-            "outline" not in st.session_state
-            or st.session_state.get("last_upload") != uploaded.name
-        ):
+        if start_btn or "outline" not in st.session_state:
             poly = _extract_polygon(img, detail, smooth)
             mask, full_mask = _masks_from_polygon(width, height, poly)
             w_img, h_img = poly[:, 0].max(), poly[:, 1].max()
@@ -337,92 +335,106 @@ def main() -> None:
                 cell_size,
                 w_svg,
                 h_svg,
+                img,
             )
             st.session_state["start"] = None
             st.session_state["end"] = None
             st.session_state.pop("maze_svg", None)
             st.session_state.pop("solution_svg", None)
-            st.session_state["last_upload"] = uploaded.name
 
-        poly_svg, mask, full_mask, cell_size, w_svg, h_svg = st.session_state["outline"]
-
-        if st.session_state.get("maze_svg") is None:
-            rects = []
-            for r in range(height):
-                for c in range(width):
-                    fill = "transparent"
-                    if st.session_state.get("start") == (r, c):
-                        fill = "#afa"
-                    elif st.session_state.get("end") == (r, c):
-                        fill = "#faa"
-                    rects.append(
-                        f'<rect data-r="{r}" data-c="{c}" x="{c * cell_size * scale}" y="{r * cell_size * scale}" width="{cell_size * scale}" height="{cell_size * scale}" fill="{fill}" stroke="#ddd" onclick="send(evt)" />'
-                    )
-            path_d = "M " + " ".join(f"{x},{y}" for x, y in poly_svg) + " Z"
-            script = (
-                "<script>function send(evt){"
-                "const r=evt.target.getAttribute('data-r');"
-                "const c=evt.target.getAttribute('data-c');"
-                "Streamlit.setComponentValue(r+','+c);}</script>"
-            )
-            html = (
-                "<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}' viewBox='0 0 {w} {h}'>".format(
-                    w=w_svg, h=h_svg
-                )
-                + "".join(rects)
-                + f'<path d="{path_d}" fill="none" stroke="black" stroke-width="{contour_pt}pt" />'
-                + "</svg>"
-                + script
-            )
-            selection = components.html(html, height=int(h_svg) + 10)
-            if isinstance(selection, str) and selection:
-                r, c = map(int, selection.split(","))
-                if st.session_state.get("start") is None:
-                    st.session_state["start"] = (r, c)
-                elif st.session_state.get("end") is None:
-                    st.session_state["end"] = (r, c)
-
-        if (
-            st.session_state.get("start") is not None
-            and st.session_state.get("end") is not None
-            and st.session_state.get("maze_svg") is None
-        ):
-            maze_svg, sol_svg, w_svg, h_svg = generate_contour_maze(
+        if "outline" in st.session_state:
+            (
+                poly_svg,
+                mask,
+                full_mask,
+                cell_size,
+                w_svg,
+                h_svg,
                 img,
-                width,
-                height,
-                contour_pt,
-                maze_pt,
-                detail,
-                smooth,
-                scale,
-                st.session_state["start"],
-                st.session_state["end"],
-            )
-            st.session_state["maze_svg"] = maze_svg
-            st.session_state["solution_svg"] = sol_svg
-            st.session_state["w_svg"] = w_svg
-            st.session_state["h_svg"] = h_svg
+            ) = st.session_state["outline"]
 
-        if st.session_state.get("maze_svg"):
-            if st.button("rozwiązanie"):
-                st.session_state["show_solution"] = not st.session_state.get(
-                    "show_solution", False
+            if st.session_state.get("maze_svg") is None:
+                rects = []
+                for r in range(height):
+                    for c in range(width):
+                        fill = "transparent"
+                        if st.session_state.get("start") == (r, c):
+                            fill = "#afa"
+                        elif st.session_state.get("end") == (r, c):
+                            fill = "#faa"
+                        rects.append(
+                            f'<rect data-r="{r}" data-c="{c}" x="{c * cell_size * scale}" y="{r * cell_size * scale}" width="{cell_size * scale}" height="{cell_size * scale}" fill="{fill}" stroke="#ddd" onclick="send(evt)" />'
+                        )
+                path_d = "M " + " ".join(f"{x},{y}" for x, y in poly_svg) + " Z"
+                script = (
+                    "<script>function send(evt){"
+                    "const r=evt.target.getAttribute('data-r');"
+                    "const c=evt.target.getAttribute('data-c');"
+                    "Streamlit.setComponentValue(r+','+c);}</script>"
                 )
-            svg = st.session_state["maze_svg"]
-            if st.session_state.get("show_solution") and st.session_state.get(
-                "solution_svg"
+                html = (
+                    "<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}' viewBox='0 0 {w} {h}'>".format(
+                        w=w_svg, h=h_svg
+                    )
+                    + "".join(rects)
+                    + f'<path d="{path_d}" fill="none" stroke="black" stroke-width="{contour_pt}pt" />'
+                    + "</svg>"
+                    + script
+                )
+                selection = components.html(html, height=int(h_svg) + 10, key="grid")
+                if isinstance(selection, str) and selection:
+                    r, c = map(int, selection.split(","))
+                    if st.session_state.get("start") is None:
+                        st.session_state["start"] = (r, c)
+                    elif st.session_state.get("end") is None and (r, c) != st.session_state.get(
+                        "start"
+                    ):
+                        st.session_state["end"] = (r, c)
+                    st.experimental_rerun()
+
+            if (
+                st.session_state.get("start") is not None
+                and st.session_state.get("end") is not None
+                and st.session_state.get("maze_svg") is None
             ):
-                svg = svg.replace(
-                    "</svg>", st.session_state["solution_svg"] + "</svg>"
+                if st.button("generuj"):
+                    maze_svg, sol_svg, w_svg, h_svg = generate_contour_maze(
+                        img,
+                        width,
+                        height,
+                        contour_pt,
+                        maze_pt,
+                        detail,
+                        smooth,
+                        scale,
+                        st.session_state["start"],
+                        st.session_state["end"],
+                    )
+                    st.session_state["maze_svg"] = maze_svg
+                    st.session_state["solution_svg"] = sol_svg
+                    st.session_state["w_svg"] = w_svg
+                    st.session_state["h_svg"] = h_svg
+                    st.experimental_rerun()
+
+            if st.session_state.get("maze_svg"):
+                if st.button("rozwiązanie"):
+                    st.session_state["show_solution"] = not st.session_state.get(
+                        "show_solution", False
+                    )
+                svg = st.session_state["maze_svg"]
+                if st.session_state.get("show_solution") and st.session_state.get(
+                    "solution_svg"
+                ):
+                    svg = svg.replace(
+                        "</svg>", st.session_state["solution_svg"] + "</svg>"
+                    )
+                st.components.v1.html(svg, height=int(st.session_state["h_svg"] * 1.1))
+                st.download_button(
+                    "pobierz",
+                    data=svg,
+                    file_name="maze.svg",
+                    mime="image/svg+xml",
                 )
-            st.components.v1.html(svg, height=int(st.session_state["h_svg"] * 1.1))
-            st.download_button(
-                "pobierz",
-                data=svg,
-                file_name="maze.svg",
-                mime="image/svg+xml",
-            )
 
 
 if __name__ == "__main__":
