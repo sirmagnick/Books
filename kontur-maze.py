@@ -354,7 +354,8 @@ def main() -> None:
             ) = st.session_state["outline"]
 
             if st.session_state.get("maze_svg") is None:
-                rects = []
+                clicked = st.text_input("Kliknięta kratka", key="clicked_cell")
+                rects: List[str] = []
                 for r in range(height):
                     for c in range(width):
                         fill = "transparent"
@@ -367,10 +368,12 @@ def main() -> None:
                         )
                 path_d = "M " + " ".join(f"{x},{y}" for x, y in poly_svg) + " Z"
                 script = (
-                    "<script>function send(evt){"
+                    "<script>function send(evt){"  # noqa: E501
                     "const r=evt.target.getAttribute('data-r');"
                     "const c=evt.target.getAttribute('data-c');"
-                    "Streamlit.setComponentValue(r+','+c);}</script>"
+                    "const input=window.parent.document.querySelector('input[aria-label=\"Kliknięta kratka\"]');"
+                    "if(input){input.value=r+','+c;input.dispatchEvent(new Event('input',{bubbles:true}));}}"  # noqa: E501
+                    "</script>"
                 )
                 html = (
                     "<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}' viewBox='0 0 {w} {h}'>".format(
@@ -381,16 +384,24 @@ def main() -> None:
                     + "</svg>"
                     + script
                 )
-                selection = components.html(html, height=int(h_svg) + 10)
-                if isinstance(selection, str) and selection:
-                    r, c = map(int, selection.split(","))
-                    if st.session_state.get("start") is None:
-                        st.session_state["start"] = (r, c)
-                    elif st.session_state.get("end") is None and (r, c) != st.session_state.get(
-                        "start"
-                    ):
-                        st.session_state["end"] = (r, c)
-                    st.experimental_rerun()
+                components.html(html, height=int(h_svg) + 10)
+                if clicked:
+                    try:
+                        r, c = map(int, clicked.split(","))
+                        if st.session_state.get("start") is None:
+                            st.session_state["start"] = (r, c)
+                            st.session_state["clicked_cell"] = ""
+                            st.experimental_rerun()
+                        elif st.session_state.get("end") is None and (r, c) != st.session_state.get(
+                            "start"
+                        ):
+                            st.session_state["end"] = (r, c)
+                            st.session_state["clicked_cell"] = ""
+                            st.experimental_rerun()
+                    except Exception:
+                        pass
+                st.write("Start:", st.session_state.get("start"))
+                st.write("End:", st.session_state.get("end"))
 
             if (
                 st.session_state.get("start") is not None
