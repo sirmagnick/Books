@@ -381,7 +381,7 @@ def main() -> None:
                     + "</svg>"
                     + script
                 )
-                selection = components.html(html, height=int(h_svg) + 10, key="grid")
+                selection = components.html(html, height=int(h_svg) + 10)
                 if isinstance(selection, str) and selection:
                     r, c = map(int, selection.split(","))
                     if st.session_state.get("start") is None:
