@@ -61,13 +61,31 @@ def _point_in_polygon(x: float, y: float, poly: List[Tuple[float, float]]) -> bo
     return inside
 
 
+def _rotate_poly(poly: np.ndarray, times: int) -> np.ndarray:
+    """Rotate polygon by 90-degree increments around its bounding box."""
+    times %= 4
+    if times == 0:
+        return poly
+    w = poly[:, 0].max()
+    h = poly[:, 1].max()
+    if times == 1:
+        return np.column_stack((h - poly[:, 1], poly[:, 0]))
+    if times == 2:
+        return np.column_stack((w - poly[:, 0], h - poly[:, 1]))
+    return np.column_stack((poly[:, 1], w - poly[:, 0]))
+
+
 def _masks_from_polygon(
     width: int, height: int, poly: np.ndarray
 ) -> Tuple[np.ndarray, np.ndarray]:
     grid_poly: List[Tuple[float, float]] = []
+    sx = 0.98 * width / poly[:, 0].max()
+    sy = 0.98 * height / poly[:, 1].max()
+    ox = (width - poly[:, 0].max() * sx) / 2
+    oy = (height - poly[:, 1].max() * sy) / 2
     for x, y in poly:
-        gx = x / poly[:, 0].max() * width
-        gy = y / poly[:, 1].max() * height
+        gx = x * sx + ox
+        gy = y * sy + oy
         grid_poly.append((gx, gy))
     center_mask = np.zeros((height, width), dtype=bool)
     full_mask = np.zeros((height, width), dtype=bool)
@@ -179,8 +197,13 @@ def generate_contour_maze(
     scale: float,
     start: Tuple[int, int],
     end: Tuple[int, int],
+    poly: np.ndarray | None = None,
+    rotation: int = 0,
 ):
-    poly = _extract_polygon(img, detail, smooth)
+    if poly is None:
+        poly = _extract_polygon(img, detail, smooth)
+    if rotation:
+        poly = _rotate_poly(poly, rotation)
     mask, full_mask = _masks_from_polygon(width, height, poly)
     if not mask[start] or not mask[end]:
         raise ValueError("Start lub meta poza konturem")
@@ -190,9 +213,11 @@ def generate_contour_maze(
     cell_size = min(w_img / width, h_img / height)
     w_svg = width * cell_size * scale
     h_svg = height * cell_size * scale
-    scale_x = w_svg / w_img
-    scale_y = h_svg / h_img
-    poly_svg = [(x * scale_x, y * scale_y) for x, y in poly]
+    scale_x = 0.98 * w_svg / w_img
+    scale_y = 0.98 * h_svg / h_img
+    off_x = (w_svg - w_img * scale_x) / 2
+    off_y = (h_svg - h_img * scale_y) / 2
+    poly_svg = [(x * scale_x + off_x, y * scale_y + off_y) for x, y in poly]
     svg = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{w_svg}" height="{h_svg}" viewBox="0 0 {w_svg} {h_svg}">'
     ]
@@ -304,6 +329,29 @@ def generate_contour_maze(
     return base_svg, solution_lines, w_svg, h_svg
 
 
+def _build_outline(width, height, scale, base_poly, rotation, img):
+    rot_poly = _rotate_poly(base_poly, rotation)
+    mask, full_mask = _masks_from_polygon(width, height, rot_poly)
+    w_img, h_img = rot_poly[:, 0].max(), rot_poly[:, 1].max()
+    cell_size = min(w_img / width, h_img / height)
+    w_svg = width * cell_size * scale
+    h_svg = height * cell_size * scale
+    sx = 0.98 * w_svg / w_img
+    sy = 0.98 * h_svg / h_img
+    ox = (w_svg - w_img * sx) / 2
+    oy = (h_svg - h_img * sy) / 2
+    poly_svg = [(x * sx + ox, y * sy + oy) for x, y in rot_poly]
+    st.session_state["outline"] = (
+        poly_svg,
+        mask,
+        full_mask,
+        cell_size,
+        w_svg,
+        h_svg,
+        img,
+    )
+
+
 def main() -> None:
     st.title("Kontur Maze")
     uploaded = st.file_uploader("Wczytaj obraz", type=["png", "jpg", "jpeg"])
@@ -319,24 +367,10 @@ def main() -> None:
     if uploaded:
         img = Image.open(uploaded)
         if start_btn or "outline" not in st.session_state:
-            poly = _extract_polygon(img, detail, smooth)
-            mask, full_mask = _masks_from_polygon(width, height, poly)
-            w_img, h_img = poly[:, 0].max(), poly[:, 1].max()
-            cell_size = min(w_img / width, h_img / height)
-            w_svg = width * cell_size * scale
-            h_svg = height * cell_size * scale
-            scale_x = w_svg / w_img
-            scale_y = h_svg / h_img
-            poly_svg = [(x * scale_x, y * scale_y) for x, y in poly]
-            st.session_state["outline"] = (
-                poly_svg,
-                mask,
-                full_mask,
-                cell_size,
-                w_svg,
-                h_svg,
-                img,
-            )
+            base_poly = _extract_polygon(img, detail, smooth)
+            st.session_state["base_poly"] = base_poly
+            st.session_state["rotation"] = 0
+            _build_outline(width, height, scale, base_poly, 0, img)
             st.session_state["start_input"] = ""
             st.session_state["end_input"] = ""
             st.session_state.pop("maze_svg", None)
@@ -356,6 +390,21 @@ def main() -> None:
             ) = st.session_state["outline"]
 
             if st.session_state.get("maze_svg") is None:
+                if st.button("obróć"):
+                    st.session_state["rotation"] = (st.session_state.get("rotation", 0) + 1) % 4
+                    _build_outline(
+                        width,
+                        height,
+                        scale,
+                        st.session_state["base_poly"],
+                        st.session_state["rotation"],
+                        img,
+                    )
+                    st.session_state["start_input"] = ""
+                    st.session_state["end_input"] = ""
+                    st.session_state.pop("start", None)
+                    st.session_state.pop("end", None)
+                    st.rerun()
                 start_str = st.text_input("Start", key="start_input")
                 end_str = st.text_input("Meta", key="end_input")
                 st.text_input("clicked", key="clicked_cell", label_visibility="collapsed")
@@ -438,6 +487,10 @@ def main() -> None:
                                 scale,
                                 (sr, sc),
                                 (er, ec),
+                                poly=_rotate_poly(
+                                    st.session_state["base_poly"],
+                                    st.session_state.get("rotation", 0),
+                                ),
                             )
                         except Exception as e:
                             st.error(str(e))
@@ -451,10 +504,40 @@ def main() -> None:
                             st.session_state["show_solution"] = False
                             st.rerun()
             if st.session_state.get("maze_svg"):
-                if st.button("rozwiązanie"):
-                    st.session_state["show_solution"] = not st.session_state.get(
-                        "show_solution", False
-                    )
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("rozwiązanie"):
+                        st.session_state["show_solution"] = not st.session_state.get(
+                            "show_solution", False
+                        )
+                with col2:
+                    if st.button("generuj ponownie"):
+                        try:
+                            maze_svg, sol_svg, w_svg, h_svg = generate_contour_maze(
+                                img,
+                                width,
+                                height,
+                                contour_pt,
+                                maze_pt,
+                                detail,
+                                smooth,
+                                scale,
+                                st.session_state["start"],
+                                st.session_state["end"],
+                                poly=_rotate_poly(
+                                    st.session_state["base_poly"],
+                                    st.session_state.get("rotation", 0),
+                                ),
+                            )
+                        except Exception as e:
+                            st.error(str(e))
+                        else:
+                            st.session_state["maze_svg"] = maze_svg
+                            st.session_state["solution_svg"] = sol_svg
+                            st.session_state["w_svg"] = w_svg
+                            st.session_state["h_svg"] = h_svg
+                            st.session_state["show_solution"] = False
+                            st.rerun()
                 svg = st.session_state["maze_svg"]
                 if st.session_state.get("show_solution") and st.session_state.get(
                     "solution_svg"
