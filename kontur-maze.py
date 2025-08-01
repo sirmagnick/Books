@@ -354,7 +354,7 @@ def main() -> None:
             ) = st.session_state["outline"]
 
             if st.session_state.get("maze_svg") is None:
-                clicked = st.text_input("Kliknięta kratka", key="clicked_cell")
+                st.text_input("Kliknięta kratka", key="clicked_cell")
                 rects: List[str] = []
                 for r in range(height):
                     for c in range(width):
@@ -385,6 +385,7 @@ def main() -> None:
                     + script
                 )
                 components.html(html, height=int(h_svg) + 10)
+                clicked = st.session_state.get("clicked_cell")
                 if clicked:
                     try:
                         r, c = map(int, clicked.split(","))
