@@ -356,9 +356,6 @@ def main() -> None:
             ) = st.session_state["outline"]
 
             if st.session_state.get("maze_svg") is None:
-                target = st.radio(
-                    "Wpisz kliknięcie do", ["Start", "Meta"], key="target_field", horizontal=True
-                )
                 start_str = st.text_input("Start", key="start_input")
                 end_str = st.text_input("Meta", key="end_input")
                 st.text_input("clicked", key="clicked_cell", label_visibility="collapsed")
@@ -406,15 +403,19 @@ def main() -> None:
                 if clicked:
                     try:
                         r, c = map(int, clicked.split(','))
-                        if st.session_state.get("target_field") == "Start":
-                            st.session_state["start_input"] = f"{r},{c}"
-                        else:
-                            st.session_state["end_input"] = f"{r},{c}"
+                        pos = f"{r},{c}"
+                        if not st.session_state.get("start_input"):
+                            st.session_state["start_input"] = pos
+                        elif (
+                            not st.session_state.get("end_input")
+                            and pos != st.session_state["start_input"]
+                        ):
+                            st.session_state["end_input"] = pos
                     except Exception:
                         pass
                     finally:
                         st.session_state["clicked_cell"] = ""
-                    st.experimental_rerun()
+                        st.rerun()
 
                 if st.button("Generuj"):
                     start_val = st.session_state.get("start_input", "")
@@ -448,7 +449,7 @@ def main() -> None:
                             st.session_state["start"] = (sr, sc)
                             st.session_state["end"] = (er, ec)
                             st.session_state["show_solution"] = False
-                            st.experimental_rerun()
+                            st.rerun()
             if st.session_state.get("maze_svg"):
                 if st.button("rozwiązanie"):
                     st.session_state["show_solution"] = not st.session_state.get(

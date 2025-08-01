@@ -5,20 +5,45 @@ from typing import List, Tuple
 import numpy as np
 from PIL import Image
 import streamlit as st
+import streamlit.components.v1 as components
 
 try:  # pragma: no cover - runtime dependency check
     from skimage import measure
-except Exception:
+except Exception:  # pragma: no cover - fallback install
     import sys
     import subprocess
     import tempfile
 
     tmp = tempfile.mkdtemp()
     subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "--no-cache-dir", "--target", tmp, "scikit-image"]
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-cache-dir",
+            "--target",
+            tmp,
+            "scikit-image",
+        ]
     )
     sys.path.append(tmp)
     from skimage import measure
+
+
+def _extract_polygon(img: Image.Image, detail: float, smooth: float) -> np.ndarray:
+    """Return a smoothed polygon outline from the given image."""
+    gray = img.convert("L")
+    arr = np.array(gray)
+    arr = arr < 128
+    contours = measure.find_contours(arr.astype(float), 0.5)
+    if not contours:
+        raise ValueError("Nie znaleziono konturu")
+    contour = max(contours, key=len)
+    poly = measure.approximate_polygon(contour, tolerance=detail)
+    poly = _smooth_polygon(poly, int(smooth))
+    poly -= poly.min(axis=0)
+    return poly
 
 
 def _point_in_polygon(x: float, y: float, poly: List[Tuple[float, float]]) -> bool:
@@ -73,12 +98,11 @@ def _smooth_polygon(poly: np.ndarray, iterations: int) -> np.ndarray:
     return poly
 
 
-def _generate_maze(grid_mask: np.ndarray):
+def _generate_maze(grid_mask: np.ndarray, start: Tuple[int, int]) -> Tuple[np.ndarray, np.ndarray]:
     h, w = grid_mask.shape
     visited = np.zeros_like(grid_mask)
     h_walls = np.ones((h + 1, w), dtype=bool)
     v_walls = np.ones((h, w + 1), dtype=bool)
-    start = tuple(np.argwhere(grid_mask)[0])
     stack = [start]
     visited[start] = True
     dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)]
@@ -108,10 +132,7 @@ def _generate_maze(grid_mask: np.ndarray):
             stack.append((nr, nc))
         else:
             stack.pop()
-    inside = np.argwhere(grid_mask)
-    start = tuple(inside[0])
-    end = tuple(inside[-1])
-    return h_walls, v_walls, start, end
+    return h_walls, v_walls
 
 
 def _solve_maze(h_walls, v_walls, start, end, mask):
@@ -156,37 +177,22 @@ def generate_contour_maze(
     detail: float,
     smooth: float,
     scale: float,
-    show_solution: bool,
+    start: Tuple[int, int],
+    end: Tuple[int, int],
 ):
-    gray = img.convert("L")
-    arr = np.array(gray)
-    arr = arr < 128
-    contours = measure.find_contours(arr.astype(float), 0.5)
-    if not contours:
-        raise ValueError("Nie znaleziono konturu")
-    contour = max(contours, key=len)
-    poly = measure.approximate_polygon(contour, tolerance=detail)
-    poly = _smooth_polygon(poly, int(smooth))
-    poly -= poly.min(axis=0)
+    poly = _extract_polygon(img, detail, smooth)
     mask, full_mask = _masks_from_polygon(width, height, poly)
-    h_walls, v_walls, _, _ = _generate_maze(mask)
-    inside_full = np.argwhere(full_mask)
-    if len(inside_full) < 2:
-        raise ValueError("Kontur zbyt mały dla labiryntu")
-    start = tuple(inside_full[0])
-    end = tuple(inside_full[-1])
-    path = _solve_maze(h_walls, v_walls, start, end, full_mask)
+    if not mask[start] or not mask[end]:
+        raise ValueError("Start lub meta poza konturem")
+    h_walls, v_walls = _generate_maze(mask, start)
+    path = _solve_maze(h_walls, v_walls, start, end, mask)
     w_img, h_img = poly[:, 0].max(), poly[:, 1].max()
     cell_size = min(w_img / width, h_img / height)
     w_svg = width * cell_size * scale
     h_svg = height * cell_size * scale
     scale_x = w_svg / w_img
     scale_y = h_svg / h_img
-    poly_svg = []
-    for x, y in poly:
-        sx = x * scale_x
-        sy = y * scale_y
-        poly_svg.append((sx, sy))
+    poly_svg = [(x * scale_x, y * scale_y) for x, y in poly]
     svg = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{w_svg}" height="{h_svg}" viewBox="0 0 {w_svg} {h_svg}">'
     ]
@@ -256,25 +262,46 @@ def generate_contour_maze(
     ey = end[0] * cell_size * scale + (cell_size * scale) / 2
     svg.append(f'<circle cx="{sx}" cy="{sy}" r="{cell_size * scale / 3}" fill="green" />')
     svg.append(f'<circle cx="{ex}" cy="{ey}" r="{cell_size * scale / 3}" fill="red" />')
-    if show_solution:
-        sol_segs = []
-        pts = [
-            (
-                c * cell_size * scale + (cell_size * scale) / 2,
-                r * cell_size * scale + (cell_size * scale) / 2,
-            )
-            for r, c in path
-        ]
-        for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
-            sol_segs.extend(_clip_segment(x1, y1, x2, y2))
-        if sol_segs:
-            lines = "".join(
-                f'<line x1="{sx1}" y1="{sy1}" x2="{sx2}" y2="{sy2}" stroke="blue" stroke-width="{maze_pt}pt" />'
-                for sx1, sy1, sx2, sy2 in sol_segs
-            )
-            svg.append(lines)
+
+    solution_lines = ""
+    sol_segs = []
+    pts = [
+        (
+            c * cell_size * scale + (cell_size * scale) / 2,
+            r * cell_size * scale + (cell_size * scale) / 2,
+        )
+        for r, c in path
+    ]
+    for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+        sol_segs.extend(_clip_segment(x1, y1, x2, y2))
+    if sol_segs:
+        solution_lines = "".join(
+            f'<line x1="{sx1}" y1="{sy1}" x2="{sx2}" y2="{sy2}" stroke="blue" stroke-width="{maze_pt}pt" />'
+            for sx1, sy1, sx2, sy2 in sol_segs
+        )
+
+    def _open(poly_svg, cell):
+        if full_mask[cell]:
+            return
+        cx = cell[1] * cell_size * scale + (cell_size * scale) / 2
+        cy = cell[0] * cell_size * scale + (cell_size * scale) / 2
+        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            mx = cx + dc * (cell_size * scale / 2)
+            my = cy + dr * (cell_size * scale / 2)
+            if not inside_svg(mx, my):
+                exx = cx + dc * cell_size * scale
+                eyy = cy + dr * cell_size * scale
+                svg.append(
+                    f'<line x1="{cx}" y1="{cy}" x2="{exx}" y2="{eyy}" stroke="white" stroke-width="{contour_pt*2}pt" />'
+                )
+                break
+
+    _open(poly_svg, start)
+    _open(poly_svg, end)
+
     svg.append("</svg>")
-    return "\n".join(svg), w_svg, h_svg
+    base_svg = "\n".join(svg)
+    return base_svg, solution_lines, w_svg, h_svg
 
 
 def main() -> None:
@@ -287,30 +314,160 @@ def main() -> None:
     detail = st.sidebar.slider("poziom detali", 1.0, 10.0, 2.0)
     smooth = st.sidebar.slider("wygładzenie", 0, 5, 0)
     scale = st.sidebar.slider("skala", 0.5, 5.0, 1.0)
-    generate = st.button("generuj")
-    if generate:
-        st.session_state["kontur_run"] = True
-    if uploaded and st.session_state.get("kontur_run"):
-        if st.button("rozwiązanie"):
-            st.session_state["show_solution"] = not st.session_state.get(
-                "show_solution", False
-            )
+    start_btn = st.sidebar.button("start")
+
+    if uploaded:
         img = Image.open(uploaded)
-        svg, w, h = generate_contour_maze(
-            img,
-            width,
-            height,
-            contour_pt,
-            maze_pt,
-            detail,
-            smooth,
-            scale,
-            st.session_state.get("show_solution", False),
-        )
-        st.components.v1.html(svg, height=int(h * 1.1))
-        st.download_button(
-            "pobierz", data=svg, file_name="maze.svg", mime="image/svg+xml"
-        )
+        if start_btn or "outline" not in st.session_state:
+            poly = _extract_polygon(img, detail, smooth)
+            mask, full_mask = _masks_from_polygon(width, height, poly)
+            w_img, h_img = poly[:, 0].max(), poly[:, 1].max()
+            cell_size = min(w_img / width, h_img / height)
+            w_svg = width * cell_size * scale
+            h_svg = height * cell_size * scale
+            scale_x = w_svg / w_img
+            scale_y = h_svg / h_img
+            poly_svg = [(x * scale_x, y * scale_y) for x, y in poly]
+            st.session_state["outline"] = (
+                poly_svg,
+                mask,
+                full_mask,
+                cell_size,
+                w_svg,
+                h_svg,
+                img,
+            )
+            st.session_state["start_input"] = ""
+            st.session_state["end_input"] = ""
+            st.session_state.pop("maze_svg", None)
+            st.session_state.pop("solution_svg", None)
+            st.session_state.pop("start", None)
+            st.session_state.pop("end", None)
+
+        if "outline" in st.session_state:
+            (
+                poly_svg,
+                mask,
+                full_mask,
+                cell_size,
+                w_svg,
+                h_svg,
+                img,
+            ) = st.session_state["outline"]
+
+            if st.session_state.get("maze_svg") is None:
+                target = st.radio(
+                    "Wpisz kliknięcie do", ["Start", "Meta"], key="target_field", horizontal=True
+                )
+                start_str = st.text_input("Start", key="start_input")
+                end_str = st.text_input("Meta", key="end_input")
+                st.text_input("clicked", key="clicked_cell", label_visibility="collapsed")
+
+                start_rc = None
+                end_rc = None
+                try:
+                    start_rc = tuple(map(int, start_str.split(',')))
+                except Exception:
+                    pass
+                try:
+                    end_rc = tuple(map(int, end_str.split(',')))
+                except Exception:
+                    pass
+
+                rects: List[str] = []
+                for r in range(height):
+                    for c in range(width):
+                        fill = "transparent"
+                        if start_rc == (r, c):
+                            fill = "#afa"
+                        elif end_rc == (r, c):
+                            fill = "#faa"
+                        rects.append(f'<rect data-r="{r}" data-c="{c}" x="{c * cell_size * scale}" y="{r * cell_size * scale}" width="{cell_size * scale}" height="{cell_size * scale}" fill="{fill}" stroke="#ddd" onclick="send(evt)" />')
+                path_d = "M " + " ".join(f"{x},{y}" for x, y in poly_svg) + " Z"
+                script = (
+                    "<script>function send(evt){"
+                    "const r=evt.target.getAttribute('data-r');"
+                    "const c=evt.target.getAttribute('data-c');"
+                    "const input=window.parent.document.querySelector('input[aria-label=\"clicked\"]');"
+                    "if(input){input.value=r+','+c;input.dispatchEvent(new Event('input',{bubbles:true}));}}"
+                    "</script>"
+                )
+                html = (
+                    "<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}' viewBox='0 0 {w} {h}'>".format(
+                        w=w_svg, h=h_svg
+                    )
+                    + "".join(rects)
+                    + f'<path d="{path_d}" fill="none" stroke="black" stroke-width="{contour_pt}pt" />'
+                    + "</svg>"
+                    + script
+                )
+                components.html(html, height=int(h_svg) + 10)
+                clicked = st.session_state.get("clicked_cell")
+                if clicked:
+                    try:
+                        r, c = map(int, clicked.split(','))
+                        if st.session_state.get("target_field") == "Start":
+                            st.session_state["start_input"] = f"{r},{c}"
+                        else:
+                            st.session_state["end_input"] = f"{r},{c}"
+                    except Exception:
+                        pass
+                    finally:
+                        st.session_state["clicked_cell"] = ""
+                    st.experimental_rerun()
+
+                if st.button("Generuj"):
+                    start_val = st.session_state.get("start_input", "")
+                    end_val = st.session_state.get("end_input", "")
+                    try:
+                        sr, sc = map(int, start_val.split(','))
+                        er, ec = map(int, end_val.split(','))
+                    except Exception:
+                        st.error("Nieprawidłowe współrzędne")
+                    else:
+                        try:
+                            maze_svg, sol_svg, w_svg, h_svg = generate_contour_maze(
+                                img,
+                                width,
+                                height,
+                                contour_pt,
+                                maze_pt,
+                                detail,
+                                smooth,
+                                scale,
+                                (sr, sc),
+                                (er, ec),
+                            )
+                        except Exception as e:
+                            st.error(str(e))
+                        else:
+                            st.session_state["maze_svg"] = maze_svg
+                            st.session_state["solution_svg"] = sol_svg
+                            st.session_state["w_svg"] = w_svg
+                            st.session_state["h_svg"] = h_svg
+                            st.session_state["start"] = (sr, sc)
+                            st.session_state["end"] = (er, ec)
+                            st.session_state["show_solution"] = False
+                            st.experimental_rerun()
+            if st.session_state.get("maze_svg"):
+                if st.button("rozwiązanie"):
+                    st.session_state["show_solution"] = not st.session_state.get(
+                        "show_solution", False
+                    )
+                svg = st.session_state["maze_svg"]
+                if st.session_state.get("show_solution") and st.session_state.get(
+                    "solution_svg"
+                ):
+                    svg = svg.replace(
+                        "</svg>", st.session_state["solution_svg"] + "</svg>"
+                    )
+                st.components.v1.html(svg, height=int(st.session_state["h_svg"] * 1.1))
+                st.download_button(
+                    "pobierz",
+                    data=svg,
+                    file_name="maze.svg",
+                    mime="image/svg+xml",
+                )
 
 
 if __name__ == "__main__":
