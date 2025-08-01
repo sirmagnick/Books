@@ -337,10 +337,12 @@ def main() -> None:
                 h_svg,
                 img,
             )
-            st.session_state["start"] = None
-            st.session_state["end"] = None
+            st.session_state["start_input"] = ""
+            st.session_state["end_input"] = ""
             st.session_state.pop("maze_svg", None)
             st.session_state.pop("solution_svg", None)
+            st.session_state.pop("start", None)
+            st.session_state.pop("end", None)
 
         if "outline" in st.session_state:
             (
@@ -354,25 +356,40 @@ def main() -> None:
             ) = st.session_state["outline"]
 
             if st.session_state.get("maze_svg") is None:
-                st.text_input("Kliknięta kratka", key="clicked_cell")
+                target = st.radio(
+                    "Wpisz kliknięcie do", ["Start", "Meta"], key="target_field", horizontal=True
+                )
+                start_str = st.text_input("Start", key="start_input")
+                end_str = st.text_input("Meta", key="end_input")
+                st.text_input("clicked", key="clicked_cell", label_visibility="collapsed")
+
+                start_rc = None
+                end_rc = None
+                try:
+                    start_rc = tuple(map(int, start_str.split(',')))
+                except Exception:
+                    pass
+                try:
+                    end_rc = tuple(map(int, end_str.split(',')))
+                except Exception:
+                    pass
+
                 rects: List[str] = []
                 for r in range(height):
                     for c in range(width):
                         fill = "transparent"
-                        if st.session_state.get("start") == (r, c):
+                        if start_rc == (r, c):
                             fill = "#afa"
-                        elif st.session_state.get("end") == (r, c):
+                        elif end_rc == (r, c):
                             fill = "#faa"
-                        rects.append(
-                            f'<rect data-r="{r}" data-c="{c}" x="{c * cell_size * scale}" y="{r * cell_size * scale}" width="{cell_size * scale}" height="{cell_size * scale}" fill="{fill}" stroke="#ddd" onclick="send(evt)" />'
-                        )
+                        rects.append(f'<rect data-r="{r}" data-c="{c}" x="{c * cell_size * scale}" y="{r * cell_size * scale}" width="{cell_size * scale}" height="{cell_size * scale}" fill="{fill}" stroke="#ddd" onclick="send(evt)" />')
                 path_d = "M " + " ".join(f"{x},{y}" for x, y in poly_svg) + " Z"
                 script = (
-                    "<script>function send(evt){"  # noqa: E501
+                    "<script>function send(evt){"
                     "const r=evt.target.getAttribute('data-r');"
                     "const c=evt.target.getAttribute('data-c');"
-                    "const input=window.parent.document.querySelector('input[aria-label=\"Kliknięta kratka\"]');"
-                    "if(input){input.value=r+','+c;input.dispatchEvent(new Event('input',{bubbles:true}));}}"  # noqa: E501
+                    "const input=window.parent.document.querySelector('input[aria-label=\"clicked\"]');"
+                    "if(input){input.value=r+','+c;input.dispatchEvent(new Event('input',{bubbles:true}));}}"
                     "</script>"
                 )
                 html = (
@@ -386,50 +403,52 @@ def main() -> None:
                 )
                 components.html(html, height=int(h_svg) + 10)
                 clicked = st.session_state.get("clicked_cell")
-                rerun = False
                 if clicked:
                     try:
-                        r, c = map(int, clicked.split(","))
-                        if st.session_state.get("start") is None:
-                            st.session_state["start"] = (r, c)
-                            rerun = True
-                        elif st.session_state.get("end") is None and (r, c) != st.session_state.get(
-                            "start"
-                        ):
-                            st.session_state["end"] = (r, c)
-                            rerun = True
+                        r, c = map(int, clicked.split(','))
+                        if st.session_state.get("target_field") == "Start":
+                            st.session_state["start_input"] = f"{r},{c}"
+                        else:
+                            st.session_state["end_input"] = f"{r},{c}"
                     except Exception:
                         pass
                     finally:
                         st.session_state["clicked_cell"] = ""
-                if rerun:
                     st.experimental_rerun()
-                st.write("Start:", st.session_state.get("start"))
-                st.write("End:", st.session_state.get("end"))
 
-            if (
-                st.session_state.get("start") is not None
-                and st.session_state.get("end") is not None
-                and st.session_state.get("maze_svg") is None
-            ):
-                maze_svg, sol_svg, w_svg, h_svg = generate_contour_maze(
-                    img,
-                    width,
-                    height,
-                    contour_pt,
-                    maze_pt,
-                    detail,
-                    smooth,
-                    scale,
-                    st.session_state["start"],
-                    st.session_state["end"],
-                )
-                st.session_state["maze_svg"] = maze_svg
-                st.session_state["solution_svg"] = sol_svg
-                st.session_state["w_svg"] = w_svg
-                st.session_state["h_svg"] = h_svg
-                st.experimental_rerun()
-
+                if st.button("Generuj"):
+                    start_val = st.session_state.get("start_input", "")
+                    end_val = st.session_state.get("end_input", "")
+                    try:
+                        sr, sc = map(int, start_val.split(','))
+                        er, ec = map(int, end_val.split(','))
+                    except Exception:
+                        st.error("Nieprawidłowe współrzędne")
+                    else:
+                        try:
+                            maze_svg, sol_svg, w_svg, h_svg = generate_contour_maze(
+                                img,
+                                width,
+                                height,
+                                contour_pt,
+                                maze_pt,
+                                detail,
+                                smooth,
+                                scale,
+                                (sr, sc),
+                                (er, ec),
+                            )
+                        except Exception as e:
+                            st.error(str(e))
+                        else:
+                            st.session_state["maze_svg"] = maze_svg
+                            st.session_state["solution_svg"] = sol_svg
+                            st.session_state["w_svg"] = w_svg
+                            st.session_state["h_svg"] = h_svg
+                            st.session_state["start"] = (sr, sc)
+                            st.session_state["end"] = (er, ec)
+                            st.session_state["show_solution"] = False
+                            st.experimental_rerun()
             if st.session_state.get("maze_svg"):
                 if st.button("rozwiązanie"):
                     st.session_state["show_solution"] = not st.session_state.get(
