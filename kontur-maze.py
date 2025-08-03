@@ -75,9 +75,22 @@ def _rotate_poly(poly: np.ndarray, times: int) -> np.ndarray:
     return np.column_stack((poly[:, 1], w - poly[:, 0]))
 
 
+def _segment_intersection(x1, y1, x2, y2, x3, y3, x4, y4):
+    denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    if denom == 0:
+        return None
+    t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+    u = ((x1 - x3) * (y1 - y2) - (y1 - y3) * (x1 - x2)) / denom
+    if 0 <= t <= 1 and 0 <= u <= 1:
+        ix = x1 + t * (x2 - x1)
+        iy = y1 + t * (y2 - y1)
+        return t, ix, iy
+    return None
+
+
 def _masks_from_polygon(
     width: int, height: int, poly: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, List[Tuple[float, float]]]:
     grid_poly: List[Tuple[float, float]] = []
     sx = 0.98 * width / poly[:, 0].max()
     sy = 0.98 * height / poly[:, 1].max()
@@ -97,7 +110,7 @@ def _masks_from_polygon(
             corners = [(c, r), (c + 1, r), (c, r + 1), (c + 1, r + 1)]
             if all(_point_in_polygon(x, y, grid_poly) for x, y in corners):
                 full_mask[r, c] = True
-    return center_mask, full_mask
+    return center_mask, full_mask, grid_poly
 
 
 def _smooth_polygon(poly: np.ndarray, iterations: int) -> np.ndarray:
@@ -114,6 +127,30 @@ def _smooth_polygon(poly: np.ndarray, iterations: int) -> np.ndarray:
             new_pts.extend([q, r])
         poly = np.array(new_pts + [new_pts[0]])
     return poly
+
+
+def _cell_has_contour(cell: Tuple[int, int], poly: List[Tuple[float, float]]) -> bool:
+    r, c = cell
+    x1, y1 = c, r
+    x2, y2 = c + 1, r + 1
+    corners = [(x1, y1), (x2, y1), (x1, y2), (x2, y2)]
+    inside = [_point_in_polygon(x, y, poly) for x, y in corners]
+    if any(inside) and not all(inside):
+        return True
+    rect_edges = [
+        (x1, y1, x2, y1),
+        (x2, y1, x2, y2),
+        (x2, y2, x1, y2),
+        (x1, y2, x1, y1),
+    ]
+    n = len(poly)
+    for i in range(n):
+        x3, y3 = poly[i]
+        x4, y4 = poly[(i + 1) % n]
+        for rx1, ry1, rx2, ry2 in rect_edges:
+            if _segment_intersection(x3, y3, x4, y4, rx1, ry1, rx2, ry2):
+                return True
+    return False
 
 
 def _generate_maze(grid_mask: np.ndarray, start: Tuple[int, int]) -> Tuple[np.ndarray, np.ndarray]:
@@ -204,9 +241,15 @@ def generate_contour_maze(
         poly = _extract_polygon(img, detail, smooth)
     if rotation:
         poly = _rotate_poly(poly, rotation)
-    mask, full_mask = _masks_from_polygon(width, height, poly)
-    if not mask[start] or not mask[end]:
+    mask, full_mask, grid_poly = _masks_from_polygon(width, height, poly)
+    if not mask[start] and not _cell_has_contour(start, grid_poly):
         raise ValueError("Start lub meta poza konturem")
+    if not mask[end] and not _cell_has_contour(end, grid_poly):
+        raise ValueError("Start lub meta poza konturem")
+    if not mask[start]:
+        mask[start] = True
+    if not mask[end]:
+        mask[end] = True
     h_walls, v_walls = _generate_maze(mask, start)
     path = _solve_maze(h_walls, v_walls, start, end, mask)
     w_img, h_img = poly[:, 0].max(), poly[:, 1].max()
@@ -227,18 +270,6 @@ def generate_contour_maze(
     )
     def inside_svg(x: float, y: float) -> bool:
         return _point_in_polygon(x, y, poly_svg)
-
-    def _segment_intersection(x1, y1, x2, y2, x3, y3, x4, y4):
-        denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-        if denom == 0:
-            return None
-        t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
-        u = ((x1 - x3) * (y1 - y2) - (y1 - y3) * (x1 - x2)) / denom
-        if 0 <= t <= 1 and 0 <= u <= 1:
-            ix = x1 + t * (x2 - x1)
-            iy = y1 + t * (y2 - y1)
-            return t, ix, iy
-        return None
 
     def _clip_segment(x1, y1, x2, y2):
         pts = [(0.0, x1, y1), (1.0, x2, y2)]
@@ -281,15 +312,33 @@ def generate_contour_maze(
                     svg.append(
                         f'<line x1="{sx1}" y1="{sy1}" x2="{sx2}" y2="{sy2}" stroke="black" stroke-width="{maze_pt}pt" />'
                     )
+    def _erase_contour(cell):
+        x = cell[1] * cell_size * scale
+        y = cell[0] * cell_size * scale
+        svg.append(
+            f'<rect x="{x}" y="{y}" width="{cell_size * scale}" height="{cell_size * scale}" fill="white" stroke="none" />'
+        )
+
+    start_boundary = _cell_has_contour(start, grid_poly)
+    end_boundary = _cell_has_contour(end, grid_poly)
+    if start_boundary:
+        _erase_contour(start)
+    if end_boundary:
+        _erase_contour(end)
+
     sx = start[1] * cell_size * scale + (cell_size * scale) / 2
     sy = start[0] * cell_size * scale + (cell_size * scale) / 2
     ex = end[1] * cell_size * scale + (cell_size * scale) / 2
     ey = end[0] * cell_size * scale + (cell_size * scale) / 2
-    svg.append(f'<circle cx="{sx}" cy="{sy}" r="{cell_size * scale / 3}" fill="green" />')
-    svg.append(f'<circle cx="{ex}" cy="{ey}" r="{cell_size * scale / 3}" fill="red" />')
+    if not start_boundary:
+        svg.append(
+            f'<circle cx="{sx}" cy="{sy}" r="{cell_size * scale / 3}" fill="green" />'
+        )
+    if not end_boundary:
+        svg.append(
+            f'<circle cx="{ex}" cy="{ey}" r="{cell_size * scale / 3}" fill="red" />'
+        )
 
-    solution_lines = ""
-    sol_segs = []
     pts = [
         (
             c * cell_size * scale + (cell_size * scale) / 2,
@@ -297,17 +346,12 @@ def generate_contour_maze(
         )
         for r, c in path
     ]
-    for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
-        sol_segs.extend(_clip_segment(x1, y1, x2, y2))
-    if sol_segs:
-        solution_lines = "".join(
-            f'<line x1="{sx1}" y1="{sy1}" x2="{sx2}" y2="{sy2}" stroke="blue" stroke-width="{maze_pt}pt" />'
-            for sx1, sy1, sx2, sy2 in sol_segs
-        )
+    solution_lines = "".join(
+        f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="blue" stroke-width="{maze_pt}pt" />'
+        for (x1, y1), (x2, y2) in zip(pts, pts[1:])
+    )
 
-    def _open(poly_svg, cell):
-        if full_mask[cell]:
-            return
+    def _exit_segment(cell):
         cx = cell[1] * cell_size * scale + (cell_size * scale) / 2
         cy = cell[0] * cell_size * scale + (cell_size * scale) / 2
         for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
@@ -316,13 +360,13 @@ def generate_contour_maze(
             if not inside_svg(mx, my):
                 exx = cx + dc * cell_size * scale
                 eyy = cy + dr * cell_size * scale
-                svg.append(
-                    f'<line x1="{cx}" y1="{cy}" x2="{exx}" y2="{eyy}" stroke="white" stroke-width="{contour_pt*2}pt" />'
-                )
-                break
+                return f'<line x1="{cx}" y1="{cy}" x2="{exx}" y2="{eyy}" stroke="blue" stroke-width="{maze_pt}pt" />'
+        return ""
 
-    _open(poly_svg, start)
-    _open(poly_svg, end)
+    if start_boundary:
+        solution_lines = _exit_segment(start) + solution_lines
+    if end_boundary:
+        solution_lines += _exit_segment(end)
 
     svg.append("</svg>")
     base_svg = "\n".join(svg)
@@ -331,7 +375,7 @@ def generate_contour_maze(
 
 def _build_outline(width, height, scale, base_poly, rotation, img):
     rot_poly = _rotate_poly(base_poly, rotation)
-    mask, full_mask = _masks_from_polygon(width, height, rot_poly)
+    mask, full_mask, _ = _masks_from_polygon(width, height, rot_poly)
     w_img, h_img = rot_poly[:, 0].max(), rot_poly[:, 1].max()
     cell_size = min(w_img / width, h_img / height)
     w_svg = width * cell_size * scale
@@ -407,7 +451,21 @@ def main() -> None:
                     st.rerun()
                 start_str = st.text_input("Start", key="start_input")
                 end_str = st.text_input("Meta", key="end_input")
-                st.text_input("clicked", key="clicked_cell", label_visibility="collapsed")
+                temp_col, start_col, end_col = st.columns([2, 1, 1])
+                with temp_col:
+                    st.text_input("Kliknięta kratka", key="clicked_cell")
+                with start_col:
+                    if st.button("start"):
+                        st.session_state["start_input"] = st.session_state.get(
+                            "clicked_cell", ""
+                        )
+                        st.rerun()
+                with end_col:
+                    if st.button("meta"):
+                        st.session_state["end_input"] = st.session_state.get(
+                            "clicked_cell", ""
+                        )
+                        st.rerun()
 
                 start_rc = None
                 end_rc = None
@@ -428,13 +486,15 @@ def main() -> None:
                             fill = "#afa"
                         elif end_rc == (r, c):
                             fill = "#faa"
-                        rects.append(f'<rect data-r="{r}" data-c="{c}" x="{c * cell_size * scale}" y="{r * cell_size * scale}" width="{cell_size * scale}" height="{cell_size * scale}" fill="{fill}" stroke="#ddd" onclick="send(evt)" />')
+                        rects.append(
+                            f'<rect data-r="{r}" data-c="{c}" x="{c * cell_size * scale}" y="{r * cell_size * scale}" width="{cell_size * scale}" height="{cell_size * scale}" fill="{fill}" stroke="#ddd" onclick="send(evt)" />'
+                        )
                 path_d = "M " + " ".join(f"{x},{y}" for x, y in poly_svg) + " Z"
                 script = (
                     "<script>function send(evt){"
                     "const r=evt.target.getAttribute('data-r');"
                     "const c=evt.target.getAttribute('data-c');"
-                    "const input=window.parent.document.querySelector('input[aria-label=\"clicked\"]');"
+                    "const input=window.parent.document.querySelector('input[aria-label=\"Kliknięta kratka\"]');"
                     "if(input){input.value=r+','+c;input.dispatchEvent(new Event('input',{bubbles:true}));}}"
                     "</script>"
                 )
@@ -448,23 +508,6 @@ def main() -> None:
                     + script
                 )
                 components.html(html, height=int(h_svg) + 10)
-                clicked = st.session_state.get("clicked_cell")
-                if clicked:
-                    try:
-                        r, c = map(int, clicked.split(','))
-                        pos = f"{r},{c}"
-                        if not st.session_state.get("start_input"):
-                            st.session_state["start_input"] = pos
-                        elif (
-                            not st.session_state.get("end_input")
-                            and pos != st.session_state["start_input"]
-                        ):
-                            st.session_state["end_input"] = pos
-                    except Exception:
-                        pass
-                    finally:
-                        st.session_state["clicked_cell"] = ""
-                        st.rerun()
 
                 if st.button("Generuj"):
                     start_val = st.session_state.get("start_input", "")
