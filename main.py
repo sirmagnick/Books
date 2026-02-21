@@ -33,6 +33,11 @@ def run_multi_maze() -> None:
     _run_module("multi_maze.py")
 
 
+def run_kontur_maze() -> None:
+    """Launch the kontur-maze program."""
+    _run_module("kontur-maze.py")
+
+
 def show_menu() -> None:
     """Display the start screen with buttons for each activity."""
 
@@ -43,6 +48,9 @@ def show_menu() -> None:
         _rerun()
     if st.button("multi-maze"):
         st.session_state["page"] = "multi-maze"
+        _rerun()
+    if st.button("kontur-maze"):
+        st.session_state["page"] = "kontur-maze"
         _rerun()
     if st.button("test2"):
         st.session_state["page"] = "test2"
@@ -75,6 +83,11 @@ def main() -> None:
             st.session_state["page"] = "menu"
             _rerun()
         run_multi_maze()
+    elif page == "kontur-maze":
+        if st.button("Back"):
+            st.session_state["page"] = "menu"
+            _rerun()
+        run_kontur_maze()
     else:
         st.write(f"{page} clicked")
         if st.button("Back"):
