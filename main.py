@@ -38,6 +38,11 @@ def run_kontur_maze() -> None:
     _run_module("kontur-maze.py")
 
 
+def run_pipe_maze() -> None:
+    """Launch the pipe-maze program."""
+    _run_module("pipe_maze.py")
+
+
 def show_menu() -> None:
     """Display the start screen with buttons for each activity."""
 
@@ -51,6 +56,9 @@ def show_menu() -> None:
         _rerun()
     if st.button("kontur-maze"):
         st.session_state["page"] = "kontur-maze"
+        _rerun()
+    if st.button("pipe-maze"):
+        st.session_state["page"] = "pipe-maze"
         _rerun()
     if st.button("test2"):
         st.session_state["page"] = "test2"
@@ -88,6 +96,11 @@ def main() -> None:
             st.session_state["page"] = "menu"
             _rerun()
         run_kontur_maze()
+    elif page == "pipe-maze":
+        if st.button("Back"):
+            st.session_state["page"] = "menu"
+            _rerun()
+        run_pipe_maze()
     else:
         st.write(f"{page} clicked")
         if st.button("Back"):
